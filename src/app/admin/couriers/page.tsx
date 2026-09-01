@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { QRCodeSVG } from "qrcode.react";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 
 type Courier = {
   id: string;
@@ -13,9 +14,14 @@ type Courier = {
   contract_signed_at: string | null;
   contract_pdf_url: string | null;
   tax_id: string | null;
-  passport: string | null;
+  passport_series: string | null;
   address: string | null;
+  weekly_price: number | null;
+  scooter_model: string | null;
   created_at: string;
+  subscription_start_date: string | null;
+  return_pdf_url: string | null;
+  return_signed_at: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -32,6 +38,9 @@ export default function AdminCouriersPage() {
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Courier | null>(null);
+  const [showReturnQR, setShowReturnQR] = useState(false);
+  const [docFiles, setDocFiles] = useState<Record<string, string>>({});
+  const [docFilesLoading, setDocFilesLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -51,10 +60,71 @@ export default function AdminCouriersPage() {
     setLoading(false);
   }
 
+  function selectCourier(c: Courier | null) {
+    setSelected(c);
+    setShowReturnQR(false);
+    setDocFiles({});
+    if (c) loadDocFiles(c.id);
+  }
+
+  async function loadDocFiles(courierId: string) {
+    setDocFilesLoading(true);
+    const { data } = await supabaseAdmin.storage.from("documents").list(courierId, { limit: 100 });
+    const found: Record<string, string> = {};
+    for (const kind of ["passport", "propiska", "rnokpp"]) {
+      const match = data?.find(f => f.name.startsWith(`${kind}.`));
+      if (match) found[kind] = match.name;
+    }
+    setDocFiles(found);
+    setDocFilesLoading(false);
+  }
+
   async function updateStatus(id: string, status: string) {
     await supabase.from("couriers").update({ status }).eq("id", id);
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, status } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, status } : null);
+  }
+
+  async function updateSubscriptionStart(id: string, date: string) {
+    const value = date || null;
+    await supabase.from("couriers").update({ subscription_start_date: value }).eq("id", id);
+    setCouriers(prev => prev.map(c => c.id === id ? { ...c, subscription_start_date: value } : c));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, subscription_start_date: value } : null);
+  }
+
+  function handleFieldChange(field: keyof Courier, value: string) {
+    setSelected(prev => prev ? ({ ...prev, [field]: value } as Courier) : null);
+  }
+
+  async function saveField(id: string, field: string, value: string) {
+    const trimmed = value.trim() || null;
+    const { error } = await supabase.from("couriers").update({ [field]: trimmed }).eq("id", id);
+    if (error) {
+      console.error(`saveField(${field}) failed`, error);
+      alert(`Не вдалося зберегти поле "${field}": ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: trimmed } as Courier) : c));
+  }
+
+  async function saveNumberField(id: string, field: string, value: string) {
+    const num = value.trim() === "" ? null : Number(value);
+    const { error } = await supabase.from("couriers").update({ [field]: num }).eq("id", id);
+    if (error) {
+      console.error(`saveNumberField(${field}) failed`, error);
+      alert(`Не вдалося зберегти поле "${field}": ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: num } as Courier) : c));
+    if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
+  }
+
+  function handleReturnScooter() {
+    if (!selected) return;
+    if (!confirm(`Ініціювати здачу скутера для ${selected.full_name}? Кур'єру потрібно буде відсканувати QR-код і підписати акт повернення.`)) {
+      return;
+    }
+    setShowReturnQR(true);
   }
 
   const filtered = couriers.filter(c => {
@@ -67,6 +137,8 @@ export default function AdminCouriersPage() {
   });
 
   const cities = ["all", "Луцьк", "Рівне", "Львів"];
+
+  const fieldInputClass = "flex-1 min-w-0 text-slate-700 font-medium bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none px-0 py-0.5";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -152,6 +224,7 @@ export default function AdminCouriersPage() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Кур'єр</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Місто</th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">Модель електроскутера / Тариф</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Статус</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Договір</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Дата</th>
@@ -161,7 +234,7 @@ export default function AdminCouriersPage() {
                   {filtered.map(c => (
                     <tr
                       key={c.id}
-                      onClick={() => setSelected(c)}
+                      onClick={() => selectCourier(c)}
                       className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition-colors ${selected?.id === c.id ? "bg-blue-50" : ""}`}
                     >
                       <td className="px-4 py-3">
@@ -169,6 +242,10 @@ export default function AdminCouriersPage() {
                         <div className="text-slate-400 text-xs">{c.phone}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{c.city || "—"}</td>
+                      <td className="px-4 py-3">
+                        <div className="text-slate-600">{c.scooter_model || "—"}</div>
+                        <div className="text-slate-400 text-xs">{c.weekly_price ? `${c.weekly_price} грн/тиж` : "—"}</div>
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_LABELS[c.status || "pending"]?.color || "bg-yellow-100 text-yellow-700"}`}>
                           {STATUS_LABELS[c.status || "pending"]?.label || "Очікує"}
@@ -201,22 +278,99 @@ export default function AdminCouriersPage() {
                   <h2 className="font-bold text-slate-900">{selected.full_name}</h2>
                   <p className="text-slate-500 text-sm">{selected.phone}</p>
                 </div>
-                <button onClick={() => setSelected(null)} className="text-slate-300 hover:text-slate-500 text-lg">×</button>
+                <button onClick={() => selectCourier(null)} className="text-slate-300 hover:text-slate-500 text-lg">×</button>
               </div>
 
               <div className="space-y-2 text-sm mb-4">
-                {[
-                  ["Email", selected.email],
-                  ["Місто", selected.city],
-                  ["Адреса", selected.address],
-                  ["РНОКПП", selected.tax_id],
-                  ["Паспорт", selected.passport],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex gap-2">
-                    <span className="text-slate-400 w-20 shrink-0">{label}</span>
-                    <span className="text-slate-700 font-medium">{value || "—"}</span>
-                  </div>
-                ))}
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Email</span>
+                  <input
+                    type="email"
+                    value={selected.email || ""}
+                    placeholder="email@example.com"
+                    onChange={e => handleFieldChange("email", e.target.value)}
+                    onBlur={e => saveField(selected.id, "email", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Місто</span>
+                  <select
+                    value={selected.city || ""}
+                    onChange={e => { handleFieldChange("city", e.target.value); saveField(selected.id, "city", e.target.value); }}
+                    className={fieldInputClass}
+                  >
+                    <option value="">—</option>
+                    {["Луцьк", "Рівне", "Львів"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Адреса</span>
+                  <input
+                    type="text"
+                    value={selected.address || ""}
+                    placeholder="Адреса"
+                    onChange={e => handleFieldChange("address", e.target.value)}
+                    onBlur={e => saveField(selected.id, "address", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Тариф</span>
+                  <input
+                    type="number"
+                    value={selected.weekly_price ?? ""}
+                    placeholder="грн/тиж"
+                    onChange={e => handleFieldChange("weekly_price", e.target.value)}
+                    onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                  <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Модель електроскутера</span>
+                  <input
+                    type="text"
+                    value={selected.scooter_model || ""}
+                    placeholder="Модель електроскутера"
+                    onChange={e => handleFieldChange("scooter_model", e.target.value)}
+                    onBlur={e => saveField(selected.id, "scooter_model", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">РНОКПП</span>
+                  <input
+                    type="text"
+                    value={selected.tax_id || ""}
+                    placeholder="1234567890"
+                    onChange={e => handleFieldChange("tax_id", e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    onBlur={e => saveField(selected.id, "tax_id", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Паспорт</span>
+                  <input
+                    type="text"
+                    value={selected.passport_series || ""}
+                    placeholder="АА 123456"
+                    onChange={e => handleFieldChange("passport_series", e.target.value)}
+                    onBlur={e => saveField(selected.id, "passport_series", e.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Договір</span>
+                  <input
+                    type="text"
+                    value={selected.contract_pdf_url || ""}
+                    placeholder="Посилання на PDF договору"
+                    onChange={e => handleFieldChange("contract_pdf_url", e.target.value)}
+                    onBlur={e => saveField(selected.id, "contract_pdf_url", e.target.value)}
+                    className={fieldInputClass + " truncate"}
+                  />
+                </div>
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">
@@ -234,6 +388,16 @@ export default function AdminCouriersPage() {
                 </div>
               </div>
 
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Дата старту підписки</p>
+                <input
+                  type="date"
+                  value={selected.subscription_start_date ? selected.subscription_start_date.slice(0, 10) : ""}
+                  onChange={e => updateSubscriptionStart(selected.id, e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
               {selected.contract_pdf_url && (
                 <a
                   href={selected.contract_pdf_url}
@@ -244,18 +408,79 @@ export default function AdminCouriersPage() {
                 </a>
               )}
 
-              <a
-                href={`https://jaenpkdnhlcpyyzwlqui.supabase.co/storage/v1/object/public/documents/${selected.id}/`}
-                target="_blank"
-                className="block w-full text-center border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50"
+              {selected.return_pdf_url && (
+                <a
+                  href={selected.return_pdf_url}
+                  target="_blank"
+                  className="block w-full text-center border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 mb-2"
+                >
+                  📄 Акт повернення
+                </a>
+              )}
+
+              {showReturnQR && (
+                <div className="border border-slate-200 rounded-xl p-4 mb-2 text-center bg-slate-50">
+                  <p className="text-xs text-slate-500 mb-3">Кур'єр сканує QR-код і підписує акт повернення</p>
+                  <div className="flex justify-center mb-3">
+                    <QRCodeSVG
+                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/return/${selected.id}`}
+                      size={160}
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowReturnQR(false)}
+                    className="text-xs text-slate-400 hover:text-slate-600"
+                  >
+                    Сховати QR-код
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={handleReturnScooter}
+                className="block w-full text-center bg-orange-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-orange-600 mb-2"
               >
-                📎 Документи кур'єра
-              </a>
+                🛴 Здача скутера
+              </button>
+
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ["passport", "📎 Паспорт"],
+                  ["propiska", "📎 Прописка"],
+                  ["rnokpp", "📎 РНОКПП"],
+                ] as const).map(([kind, label]) => {
+                  const fileName = docFiles[kind];
+                  if (fileName) {
+                    return (
+                      <a
+                        key={kind}
+                        href={`https://jaenpkdnhlcpyyzwlqui.supabase.co/storage/v1/object/public/documents/${selected.id}/${fileName}`}
+                        target="_blank"
+                        className="block text-center border border-slate-200 text-slate-600 rounded-xl py-2 text-xs font-medium hover:bg-slate-50"
+                      >
+                        {label}
+                      </a>
+                    );
+                  }
+                  return (
+                    <span
+                      key={kind}
+                      title={docFilesLoading ? "Завантаження..." : "Документ не знайдено"}
+                      className="block text-center border border-slate-100 text-slate-300 rounded-xl py-2 text-xs font-medium cursor-not-allowed"
+                    >
+                      {label}
+                    </span>
+                  );
+                })}
+              </div>
 
               <p className="text-xs text-slate-400 text-center mt-3">
                 Зареєстрований: {new Date(selected.created_at).toLocaleDateString("uk-UA")}
                 {selected.contract_signed_at && (
                   <><br/>Договір: {new Date(selected.contract_signed_at).toLocaleDateString("uk-UA")}</>
+                )}
+                {selected.return_signed_at && (
+                  <><br/>Повернення: {new Date(selected.return_signed_at).toLocaleDateString("uk-UA")}</>
                 )}
               </p>
             </div>

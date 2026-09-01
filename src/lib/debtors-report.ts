@@ -13,12 +13,22 @@ export interface SheetDebtor {
 }
 
 const UA_MONTHS = [
-  'січень', 'лютий', 'березень', 'квітень', 'травень', 'червень',
-  'липень', 'серпень', 'вересень', 'жовтень', 'листопад', 'грудень',
+  '\u0441\u0456\u0447\u0435\u043D\u044C',
+  '\u043B\u044E\u0442\u0438\u0439',
+  '\u0431\u0435\u0440\u0435\u0437\u0435\u043D\u044C',
+  '\u043A\u0432\u0456\u0442\u0435\u043D\u044C',
+  '\u0442\u0440\u0430\u0432\u0435\u043D\u044C',
+  '\u0447\u0435\u0440\u0432\u0435\u043D\u044C',
+  '\u043B\u0438\u043F\u0435\u043D\u044C',
+  '\u0441\u0435\u0440\u043F\u0435\u043D\u044C',
+  '\u0432\u0435\u0440\u0435\u0441\u0435\u043D\u044C',
+  '\u0436\u043E\u0432\u0442\u0435\u043D\u044C',
+  '\u043B\u0438\u0441\u0442\u043E\u043F\u0430\u0434',
+  '\u0433\u0440\u0443\u0434\u0435\u043D\u044C',
 ];
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^а-яіїє�ѕ/gi, '');
+  return s.toLowerCase().replace(/[^\u0430-\u044F\u0456\u0457\u0454\u0491]/gi, '');
 }
 
 export function resolveCurrentSheetTitle(titles: string[], now = new Date()): string | null {
@@ -38,7 +48,7 @@ export function resolveCurrentSheetTitle(titles: string[], now = new Date()): st
 
 function findHeaderRowIndex(rows: string[][]): number {
   for (let i = 0; i < Math.min(rows.length, 6); i++) {
-    if (rows[i].some((cell) => /фамілія/i.test(String(cell || '')))) return i;
+    if (rows[i].some((cell) => /\u0444\u0430\u043C\u0456\u043B\u0456\u044F/i.test(String(cell || '')))) return i;
   }
   return 0;
 }
@@ -55,16 +65,16 @@ function parseAmount(raw: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const SUMMARY_ROW_PATTERN = /^(всього|разом|итого|сума|total)\b/i;
+const SUMMARY_ROW_PATTERN = /^(\u0432\u0441\u044C\u043E\u0433\u043E|\u0440\u0430\u0437\u043E\u043C|\u0438\u0442\u043E\u0433\u043E|\u0441\u0443\u043C\u0430)\b/i;
 
 export function parseDebtorsFromSheet(city: string, rows: string[][]): SheetDebtor[] {
   if (rows.length === 0) return [];
   const headerIdx = findHeaderRowIndex(rows);
   const header = rows[headerIdx];
 
-  const nameCol = findColumnIndex(header, /фамілія/i);
-  const phoneCol = findColumnIndex(header, /телефон/i);
-  const debtCol = findColumnIndex(header, /борг<завдаток/i);
+  const nameCol = findColumnIndex(header, /\u0444\u0430\u043C\u0456\u043B\u0456\u044F/i);
+  const phoneCol = findColumnIndex(header, /\u0442\u0435\u043B\u0435\u0444\u043E\u043D/i);
+  const debtCol = findColumnIndex(header, /\u0431\u043E\u0440\u0433|\u0437\u0430\u0432\u0434\u0430\u0442\u043E\u043A/i);
 
   if (nameCol === -1 || debtCol === -1) return [];
 

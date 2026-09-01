@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
-
-const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
-  "Луцьк": 2400,
-  "Рівне": 2400,
-  "Львів": 2100,
-};
-const DEFAULT_WEEKLY_PRICE = 2400;
-
-function getWeeklyPrice(city?: string | null): number {
-  if (!city) return DEFAULT_WEEKLY_PRICE;
-  return WEEKLY_PRICE_BY_CITY[city.trim()] ?? DEFAULT_WEEKLY_PRICE;
-}
 
 async function sendMessage(chatId: number, text: string, options?: object) {
   await fetch(`${API}/sendMessage`, {
@@ -79,7 +68,7 @@ export async function POST(req: NextRequest) {
         // Отримуємо дані курʼєра
         const { data: courier } = await supabaseAdmin
           .from("couriers")
-          .select("full_name, phone, city")
+          .select("full_name, phone, city, weekly_price")
           .eq("id", courierId)
           .single();
 
@@ -88,7 +77,17 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true });
         }
 
-        const amount = getWeeklyPrice(courier.city);
+        const { data: overdueSub } = await supabaseAdmin
+          .from("subscriptions")
+          .select("expires_at")
+          .eq("courier_id", courierId)
+          .eq("status", "active")
+          .order("expires_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
+        const amount = totalWithPenalty(getWeeklyPrice(courier), late);
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7);
         const now = new Date().toISOString();
@@ -125,6 +124,12 @@ export async function POST(req: NextRequest) {
             wayforpay_id: `cash_${Date.now()}`,
           });
         }
+
+        // Активуємо кур'єра (важливо для першої оплати одразу після реєстрації)
+        await supabaseAdmin
+          .from("couriers")
+          .update({ status: "active" })
+          .eq("id", courierId);
 
         const paidDate = new Date().toLocaleDateString("uk-UA");
         const nextDate = expiresAt.toLocaleDateString("uk-UA");
@@ -267,7 +272,7 @@ export async function POST(req: NextRequest) {
     if (text.startsWith("/pay")) {
       const { data: courier } = await supabaseAdmin
         .from("couriers")
-        .select("id, full_name, city")
+        .select("id, full_name, city, weekly_price")
         .eq("telegram_chat_id", chatId)
         .single();
 
@@ -276,7 +281,17 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      const weeklyPrice = getWeeklyPrice(courier.city);
+      const { data: overdueSubForPay } = await supabaseAdmin
+        .from("subscriptions")
+        .select("expires_at")
+        .eq("courier_id", courier.id)
+        .eq("status", "active")
+        .order("expires_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      const lateForPay = overdueSubForPay ? daysOverdue(overdueSubForPay.expires_at) : 0;
+      const weeklyPrice = totalWithPenalty(getWeeklyPrice(courier), lateForPay);
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
 
       await sendMessageWithButton(

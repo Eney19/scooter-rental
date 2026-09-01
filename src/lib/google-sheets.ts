@@ -9,7 +9,7 @@ function getAuth() {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY не задані');
   }
   const privateKey = rawKey.replace(/\\n/g, '\n');
-  return new google.auth.JWT(email, undefined, privateKey, SCOPES);
+  return new google.auth.JWT({ email, key: privateKey, scopes: SCOPES });
 }
 
 let sheetsClient: ReturnType<typeof google.sheets> | null = null;

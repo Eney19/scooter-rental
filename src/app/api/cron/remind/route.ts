@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     let reminded = 0;
 
     for (const sub of expiringSubs) {
-      const courier = sub.courier as {
+      const courier = sub.courier as unknown as {
         full_name: string;
         phone: string;
         city: string;

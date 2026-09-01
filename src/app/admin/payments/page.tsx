@@ -85,6 +85,7 @@ export default function AdminPaymentsPage() {
           <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700">Кур'єри</a>
           <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700">Скутери</a>
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1">Платежі</span>
+          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700">Календар</a>
         </nav>
         <button onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }} className="text-sm text-slate-400 hover:text-slate-600">Вийти</button>
       </header>

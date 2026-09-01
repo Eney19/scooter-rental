@@ -100,16 +100,54 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await supabaseAdmin
+      const { data: courierRow } = await supabaseAdmin
         .from("couriers")
         .update({ status: "active" })
-        .eq("id", courierId);
+        .eq("id", courierId)
+        .select("full_name, phone, city")
+        .single();
 
       console.log(`Payment success: courier=${courierId}, amount=${amountUAH} UAH`);
+
+      // Сповіщення адміну про онлайн-оплату
+      try {
+        const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+        const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
+        if (BOT_TOKEN && ADMIN_CHAT_ID) {
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: ADMIN_CHAT_ID,
+              parse_mode: "HTML",
+              text:
+                "✅ <b>Оплата отримана онлайн</b>\n\n" +
+                (courierRow?.full_name || courierId) + "\n" +
+                (courierRow?.phone || "") + " | " + (courierRow?.city || "") + "\n" +
+                "Сума: <b>" + amountUAH + " грн</b>\n" +
+                "Метод: 💳 Онлайн (Monobank)",
+            }),
+          });
+        }
+      } catch (tgErr) {
+        console.error("Admin telegram notify error:", tgErr);
+      }
     } else if (status === "processing") {
       console.log(`Payment processing: invoiceId=${invoiceId}`);
     } else if (status === "failure") {
       console.log(`Payment failed: invoiceId=${invoiceId}, reason=${failureReason}`);
+    } else if (status === "reversed") {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "refunded" })
+        .eq("wayforpay_id", invoiceId);
+
+      await supabaseAdmin
+        .from("subscriptions")
+        .update({ status: "cancelled" })
+        .eq("wayforpay_id", invoiceId);
+
+      console.log(`Payment reversed: invoiceId=${invoiceId}`);
     }
 
     return NextResponse.json({ ok: true });

@@ -1,65 +1,112 @@
-import Image from "next/image";
+import Link from "next/link";
+
+const STEPS = [
+  { n: "01", title: "Обери модель і місто", text: "Луцьк, Рівне або Львів — модель можна змінити пізніше." },
+  { n: "02", title: "Заповни заявку онлайн", text: "SMS-підтвердження, підпис договору прямо на телефоні — 5 хвилин." },
+  { n: "03", title: "Забери електроскутер", text: "У зручний для тебе час, з повним баком заряду і зарядним пристроєм." },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="bg-[#10131c] text-[#f5f3ee] min-h-screen">
+      <style>{`
+        @keyframes fillMeter { from { width: 0% } to { width: 92% } }
+        .meter-fill { animation: fillMeter 1.4s ease-out 0.2s both; }
+        @media (prefers-reduced-motion: reduce) {
+          .meter-fill { animation: none; width: 92%; }
+        }
+      `}</style>
+
+      <header className="relative overflow-hidden border-b border-[#2a3150] min-h-[420px] flex flex-col justify-end">
+        <div className="absolute inset-0">
+          <img
+            src="/images/hero-scooter.jpg"
+            alt="Електроскутер PowerDrive"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#10131c] via-[#10131c]/85 to-[#10131c]/40" />
+        </div>
+        <div className="relative max-w-5xl mx-auto px-6 pb-10 pt-16 w-full">
+          <span className="inline-block font-bold text-sm tracking-wide text-[#10131c] bg-white px-3 py-1.5 rounded-full uppercase mb-4">
+            PowerDrive · Луцьк · Рівне · Львів
+          </span>
+          <h1 className="font-semibold tracking-tight text-3xl sm:text-5xl leading-[0.95] max-w-2xl">
+            Електроскутер для доставки.
+            <span className="text-[#6b82f0]"> Вже сьогодні.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-5 max-w-xl text-base sm:text-lg text-[#a9b0bd]">
+            Оренда та повне технічне обслуговування електроскутерів для кур'єрів
+            Bolt і Glovo. Ремонт, договір і підтримка — без турбот з твого боку.
           </p>
+          <div className="mt-7">
+            <Link
+              href="/register"
+              className="h-12 px-7 inline-flex items-center rounded-full bg-white text-[#10131c] font-bold hover:bg-[#e7eaf5] transition-colors"
+            >
+              Зареєструватися
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      </header>
+
+      <section className="max-w-5xl mx-auto px-6 py-10 grid grid-cols-2 sm:grid-cols-4 gap-6 border-b border-[#2a3150]">
+        {[
+          ["150 км", "запас ходу"],
+          ["6 год", "повна зарядка"],
+          ["3 міста", "Луцьк · Рівне · Львів"],
+          ["7 днів", "мінімальна оренда"],
+        ].map(([n, l]) => (
+          <div key={l}>
+            <div className="text-2xl sm:text-3xl font-semibold">{n}</div>
+            <div className="text-sm text-[#a9b0bd] mt-1">{l}</div>
+          </div>
+        ))}
+      </section>
+
+      <section className="border-t border-[#2a3150]">
+        <div className="max-w-5xl mx-auto px-6 py-16">
+          <h2 className="font-semibold text-2xl sm:text-3xl tracking-tight mb-8">
+            Як це працює
+          </h2>
+          <div className="grid sm:grid-cols-3 gap-8">
+            {STEPS.map((s) => (
+              <div key={s.n}>
+                <div className="text-[#3d56c9] text-base font-semibold mb-2">{s.n}</div>
+                <h3 className="font-bold mb-2">{s.title}</h3>
+                <p className="text-sm text-[#a9b0bd]">{s.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-[#2a3150]">
+        <div className="max-w-5xl mx-auto px-6 py-16 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div>
+            <h2 className="font-semibold text-2xl sm:text-3xl tracking-tight">
+              Готовий почати?
+            </h2>
+            <p className="text-[#a9b0bd] mt-2">
+              Заявка займає 5 хвилин. Договір підписуєш онлайн.
+            </p>
+          </div>
+          <Link
+            href="/register"
+            className="h-12 px-7 inline-flex items-center rounded-full bg-white text-[#10131c] font-bold hover:bg-[#e7eaf5] transition-colors whitespace-nowrap"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
+            Зареєструватися
+          </Link>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#2a3150]">
+        <div className="max-w-5xl mx-auto px-6 py-8 text-sm text-[#a9b0bd] flex flex-col sm:flex-row justify-between gap-3">
+          <span>PowerDrive · Луцьк · Рівне · Львів</span>
+          <a href="tel:+380663833878" className="hover:text-[#3d56c9]">
+            (066) 383 38 78
           </a>
         </div>
-      </main>
+      </footer>
     </div>
   );
 }

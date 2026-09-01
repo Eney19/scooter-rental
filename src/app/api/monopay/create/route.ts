@@ -1,20 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
-
-const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
-  "Луцьк": 2400,
-  "Рівне": 2400,
-  "Львів": 2100,
-};
-const DEFAULT_WEEKLY_PRICE = 2400;
-
-function getWeeklyPrice(city?: string | null): number {
-  if (!city) return DEFAULT_WEEKLY_PRICE;
-  return WEEKLY_PRICE_BY_CITY[city.trim()] ?? DEFAULT_WEEKLY_PRICE;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,16 +11,28 @@ export async function POST(req: NextRequest) {
 
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
-      .from("couriers")
-      .select("full_name, phone, email, city")
-      .eq("id", courierId)
-      .single();
+    .from("couriers")
+    .select("full_name, phone, email, city, weekly_price")
+    .eq("id", courierId)
+    .single();
 
-    if (error || !courier) {
-      return NextResponse.json({ success: false, error: "Кур'єра не знайдено" }, { status: 404 });
-    }
+  if (error || !courier) {
+    return NextResponse.json({ success: false, error: "Кур'єра не знайдено" }, { status: 404 });
+  }
 
-    const amountUAH = getWeeklyPrice(courier.city);
+  const baseAmount = getWeeklyPrice(courier);
+
+  const { data: overdueSub } = await supabaseAdmin
+    .from("subscriptions")
+    .select("expires_at")
+    .eq("courier_id", courierId)
+    .eq("status", "active")
+    .order("expires_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
+  const amountUAH = totalWithPenalty(baseAmount, late);
     const amountKopecks = amountUAH * 100; // Monobank приймає суму в копійках
 
     const reference = `powerdrive_${courierId}_${Date.now()}`;
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
         ccy: 980, // UAH
         merchantPaymInfo: {
           reference,
-          destination: `Оренда електроскутера PowerDrive (7 днів) — ${courier.city || ""}`.trim(),
+          destination: `Оренда скутера — ${courier.full_name} (${courier.city || ""})`.trim(),
         },
         redirectUrl: `${APP_URL}/payment/success`,
         webHookUrl: `${APP_URL}/api/monopay/webhook`,

@@ -60,8 +60,8 @@ export default function TermsAndConditionsPage() {
             <h2 className="text-xl font-semibold text-slate-900 mb-3">5. Способи оплати</h2>
             <p>Оплата послуг здійснюється одним із наступних способів:</p>
             <ul className="list-disc pl-6 space-y-1 mt-2">
-              <li>Банківською карткою (Visa, Mastercard) через платіжну систему WayForPay</li>
-              <li>Apple Pay та Google Pay через платіжну систему WayForPay</li>
+              <li>Банківською карткою (Visa, Mastercard) через платіжну систему Monobank</li>
+              <li>Apple Pay та Google Pay через платіжну систему Monobank</li>
             </ul>
             <p className="mt-2">
               Оплата здійснюється на тижневій основі. Нагадування про оплату надсилаються через Telegram-бота сервісу.

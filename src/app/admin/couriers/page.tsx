@@ -39,6 +39,7 @@ export default function AdminCouriersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
+  const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
   const [docFilesLoading, setDocFilesLoading] = useState(false);
 
@@ -119,6 +120,29 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
   }
 
+  async function handleCashPayment(courierId: string) {
+    if (!confirm("Підтвердити готівкову оплату? Підписка продовжиться на 7 днів.")) return;
+    setCashPaymentLoading(true);
+    try {
+      const res = await fetch("/api/admin/cash-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Не вдалося записати оплату");
+        return;
+      }
+      alert(`Готівковий платіж записано: ${data.amount} грн`);
+      await loadCouriers();
+    } catch (e) {
+      console.error(e);
+      alert("Помилка мережі. Спробуйте ще раз");
+    } finally {
+      setCashPaymentLoading(false);
+    }
+  }
   function handleReturnScooter() {
     if (!selected) return;
     if (!confirm(`Ініціювати здачу скутера для ${selected.full_name}? Кур'єру потрібно буде відсканувати QR-код і підписати акт повернення.`)) {
@@ -435,6 +459,14 @@ export default function AdminCouriersPage() {
                   </button>
                 </div>
               )}
+
+              <button
+                onClick={() => handleCashPayment(selected.id)}
+                disabled={cashPaymentLoading}
+                className="block w-full text-center bg-emerald-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60 mb-2"
+              >
+                {cashPaymentLoading ? "Обробка..." : "💵 Оплачено готівкою"}
+              </button>
 
               <button
                 onClick={handleReturnScooter}

@@ -13,6 +13,10 @@
       "schedule": "31 10 * * *"
     },
     {
+      "path": "/api/cron/debtor-check",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/cron/weekday-report",
       "schedule": "31 10 * * *"
     },

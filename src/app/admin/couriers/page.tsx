@@ -22,6 +22,9 @@ type Courier = {
   subscription_start_date: string | null;
   return_pdf_url: string | null;
   return_signed_at: string | null;
+  debt_since: string | null;
+  debt_amount: number | null;
+  debt_auto: boolean | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -94,6 +97,25 @@ export default function AdminCouriersPage() {
     await supabase.from("couriers").update({ subscription_start_date: value }).eq("id", id);
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, subscription_start_date: value } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, subscription_start_date: value } : null);
+  }
+
+  async function updateDebtSince(id: string, date: string) {
+    const value = date || null;
+    await supabase.from("couriers").update({ debt_since: value, debt_auto: false }).eq("id", id);
+    setCouriers(prev => prev.map(c => c.id === id ? { ...c, debt_since: value, debt_auto: false } : c));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_since: value, debt_auto: false } : null);
+  }
+
+  async function saveDebtAmount(id: string, value: string) {
+    const num = value.trim() === "" ? null : Number(value);
+    const { error } = await supabase.from("couriers").update({ debt_amount: num, debt_auto: false }).eq("id", id);
+    if (error) {
+      console.error("saveDebtAmount failed", error);
+      alert(`Не вдалося зберегти суму боргу: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === id ? { ...c, debt_amount: num, debt_auto: false } : c));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_amount: num, debt_auto: false } : null);
   }
 
   function handleFieldChange(field: keyof Courier, value: string) {
@@ -264,6 +286,7 @@ export default function AdminCouriersPage() {
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Місто</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Модель електроскутера / Тариф</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Статус</th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">Борг</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Договір</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Дата</th>
                   </tr>
@@ -288,6 +311,13 @@ export default function AdminCouriersPage() {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_LABELS[c.status || "pending"]?.color || "bg-yellow-100 text-yellow-700"}`}>
                           {STATUS_LABELS[c.status || "pending"]?.label || "Очікує"}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.debt_amount ? (
+                          <span className="font-semibold text-red-600">{c.debt_amount.toLocaleString("uk-UA")} грн</span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {c.contract_pdf_url ? (
@@ -429,6 +459,38 @@ export default function AdminCouriersPage() {
                       {STATUS_LABELS[s].label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Заборгованість</p>
+                <div className="space-y-2">
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-24 shrink-0 text-xs">Боржник з</span>
+                    <input
+                      type="date"
+                      value={selected.debt_since ? selected.debt_since.slice(0, 10) : ""}
+                      onChange={e => updateDebtSince(selected.id, e.target.value)}
+                      className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
+                    <input
+                      type="number"
+                      value={selected.debt_amount ?? ""}
+                      placeholder="0"
+                      onChange={e => handleFieldChange("debt_amount" as keyof Courier, e.target.value)}
+                      onBlur={e => saveDebtAmount(selected.id, e.target.value)}
+                      className={fieldInputClass}
+                    />
+                    <span className="text-slate-400 text-xs shrink-0">грн</span>
+                  </div>
+                  {selected.debt_auto && (
+                    <p className="text-[11px] text-slate-400">
+                      Рахується автоматично: +{150} грн/день, поки борг не погашено. Зміните значення вручну — і автонарахування для цього кур'єра зупиниться.
+                    </p>
+                  )}
                 </div>
               </div>
 

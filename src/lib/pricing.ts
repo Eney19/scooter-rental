@@ -44,3 +44,34 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     if (!city) return DEFAULT_DEPOSIT;
     return DEPOSIT_BY_CITY[city.trim()] ?? DEFAULT_DEPOSIT;
   }
+  // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер
+  // протягом DEBT_GRACE_DAYS днів після закінчення підписки, він автоматично
+  // стає боржником. З цього моменту щодня нараховується пеня DEBT_PENALTY_PER_DAY.
+  export const DEBT_GRACE_DAYS = 7;
+  export const DEBT_PENALTY_PER_DAY = 150;
+
+  // Дата, з якої кур'єр офіційно вважається боржником: через DEBT_GRACE_DAYS днів
+  // після дати закінчення підписки (фіксована дата, не залежить від того, коли саме
+  // спрацював cron).
+  export function calculateDebtSince(expiresAt: string | Date): Date {
+    const d = new Date(expiresAt);
+    d.setDate(d.getDate() + DEBT_GRACE_DAYS);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  // Скільки повних днів минуло з дати, коли кур'єр став боржником (0 — у сам цей день).
+  export function daysSinceDebt(debtSince: string | Date): number {
+    const start = new Date(debtSince);
+    start.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const diffMs = now.getTime() - start.getTime();
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  }
+
+  // Автоматична сума боргу: базова сума (тиждень оренди, який не оплатили) +
+  // пеня DEBT_PENALTY_PER_DAY грн за кожен день з моменту, коли кур'єр став боржником.
+  export function calculateAutoDebt(baseAmount: number, debtSince: string | Date): number {
+    return baseAmount + daysSinceDebt(debtSince) * DEBT_PENALTY_PER_DAY;
+  }

@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
       // Оновлюємо статус кур'єра
       await supabaseAdmin
         .from("couriers")
-        .update({ status: "active" })
+        .update({ status: "active", debt_since: null, debt_amount: null, debt_auto: false })
         .eq("id", courierId);
     }
 

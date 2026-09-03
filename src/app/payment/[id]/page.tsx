@@ -3,20 +3,16 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
-  "Луцьк": 2400,
-  "Рівне": 2400,
-  "Львів": 2100,
-};
-const DEFAULT_WEEKLY_PRICE = 2400;
-
 export default function PaymentPage() {
   const params = useParams();
   const courierId = params.id as string;
 
-  const [status, setStatus] = useState<"loading" | "redirecting" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "confirm" | "redirecting" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [amount, setAmount] = useState<number | null>(null);
+  const [rentAmount, setRentAmount] = useState<number | null>(null);
+  const [deposit, setDeposit] = useState<number>(0);
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     async function init() {
@@ -36,10 +32,17 @@ export default function PaymentPage() {
         }
 
         setAmount(data.amount);
-        setStatus("redirecting");
+        setRentAmount(data.rentAmount ?? data.amount);
+        setDeposit(data.deposit ?? 0);
+        setPageUrl(data.pageUrl);
 
-        // Перенаправляємо на сторінку оплати Monobank
-        window.location.href = data.pageUrl;
+        if (data.deposit > 0) {
+          // Перша оплата — показуємо розбивку (оренда + завдаток), не перенаправляємо одразу
+          setStatus("confirm");
+        } else {
+          setStatus("redirecting");
+          window.location.href = data.pageUrl;
+        }
       } catch {
         setStatus("error");
         setErrorMessage("Сталася помилка з'єднання. Перевірте інтернет і спробуйте ще раз.");
@@ -62,6 +65,42 @@ export default function PaymentPage() {
           </>
         )}
 
+        {status === "confirm" && (
+          <>
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+              💳
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Оренда електроскутера</h1>
+            <div className="mt-4 text-left bg-slate-50 rounded-xl p-4 space-y-2">
+              <div className="flex justify-between text-slate-600">
+                <span>Оренда за 7 днів</span>
+                <span className="font-medium">{rentAmount} грн</span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Завдаток за скутер</span>
+                <span className="font-medium">{deposit} грн</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-2 text-slate-900 font-bold text-lg">
+                <span>Всього до оплати</span>
+                <span>{amount} грн</span>
+              </div>
+            </div>
+            <p className="text-slate-400 text-xs mt-3">
+              Завдаток стягується одноразово, при першій оплаті, і повертається при поверненні скутера.
+            </p>
+            <button
+              onClick={() => {
+                if (!pageUrl) return;
+                setStatus("redirecting");
+                window.location.href = pageUrl;
+              }}
+              className="w-full mt-5 bg-blue-600 text-white rounded-xl py-3.5 text-lg font-bold hover:bg-blue-700 transition-colors"
+            >
+              Перейти до оплати
+            </button>
+          </>
+        )}
+
         {status === "redirecting" && (
           <>
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
@@ -70,7 +109,7 @@ export default function PaymentPage() {
             <h1 className="text-2xl font-bold text-slate-900">Оренда електроскутера</h1>
             {amount !== null && (
               <p className="text-slate-700 mt-2 text-lg font-semibold">
-                {amount} грн за 7 днів
+                {amount} грн{deposit === 0 ? " за 7 днів" : ""}
               </p>
             )}
             <p className="text-slate-500 mt-4">

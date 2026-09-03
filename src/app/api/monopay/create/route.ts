@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount } from "@/lib/pricing";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
@@ -32,7 +32,17 @@ export async function POST(req: NextRequest) {
     .single();
 
   const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-  const amountUAH = totalWithPenalty(baseAmount, late);
+  const rentAmount = totalWithPenalty(baseAmount, late);
+
+  // Завдаток стягується лише при першій оплаті кур'єра (ще немає жодної підписки)
+  const { count: subsCount } = await supabaseAdmin
+    .from("subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("courier_id", courierId);
+  const isFirstPayment = !subsCount;
+  const deposit = isFirstPayment ? getDepositAmount(courier.city) : 0;
+
+  const amountUAH = rentAmount + deposit;
     const amountKopecks = amountUAH * 100; // Monobank приймає суму в копійках
 
     const reference = `powerdrive_${courierId}_${Date.now()}`;
@@ -58,7 +68,11 @@ export async function POST(req: NextRequest) {
         ccy: 980, // UAH
         merchantPaymInfo: {
           reference,
-          destination: `Оренда скутера — ${courier.full_name} (${courier.city || ""})`.trim(),
+          destination: (
+            deposit > 0
+              ? `Оренда скутера ${rentAmount} грн + завдаток ${deposit} грн — ${courier.full_name} (${courier.city || ""})`
+              : `Оренда скутера — ${courier.full_name} (${courier.city || ""})`
+          ).trim(),
         },
         redirectUrl: `${APP_URL}/payment/success`,
         webHookUrl: `${APP_URL}/api/monopay/webhook`,
@@ -78,6 +92,8 @@ export async function POST(req: NextRequest) {
       pageUrl: data.pageUrl,
       invoiceId: data.invoiceId,
       amount: amountUAH,
+      rentAmount,
+      deposit,
     });
   } catch (error) {
     console.error("Monobank create error:", error);

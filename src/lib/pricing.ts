@@ -31,3 +31,16 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   export function totalWithPenalty(baseAmount: number, daysLate: number): number {
     return baseAmount + calculatePenalty(daysLate);
   }
+
+  // Завдаток за скутер — стягується лише один раз, при першій оплаті кур'єра.
+  const DEPOSIT_BY_CITY: Record<string, number> = {
+    "Луцьк": 1400,
+    "Рівне": 1400,
+    "Львів": 2100,
+  };
+  const DEFAULT_DEPOSIT = 1400;
+
+  export function getDepositAmount(city?: string | null): number {
+    if (!city) return DEFAULT_DEPOSIT;
+    return DEPOSIT_BY_CITY[city.trim()] ?? DEFAULT_DEPOSIT;
+  }

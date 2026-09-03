@@ -312,8 +312,14 @@ export default function AdminCouriersPage() {
           <div className="w-80 shrink-0">
             <div className="bg-white rounded-xl border border-slate-200 p-5 sticky top-6">
               <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h2 className="font-bold text-slate-900">{selected.full_name}</h2>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={selected.full_name}
+                    onChange={e => handleFieldChange("full_name", e.target.value)}
+                    onBlur={e => saveField(selected.id, "full_name", e.target.value)}
+                    className="font-bold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none w-full px-0 py-0.5"
+                  />
                   <p className="text-slate-500 text-sm">{selected.phone}</p>
                 </div>
                 <button onClick={() => selectCourier(null)} className="text-slate-300 hover:text-slate-500 text-lg">×</button>

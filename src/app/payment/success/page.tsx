@@ -18,9 +18,6 @@ export default function PaymentSuccessPage() {
             💬 Приєднатися до Telegram-бота
           </a>
         )}
-        <p className="text-sm text-slate-400">
-          Наступне списання відбудеться автоматично через 7 днів. У боті ви отримаєте нагадування заздалегідь.
-        </p>
       </div>
     </div>
   );

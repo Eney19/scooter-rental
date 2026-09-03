@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 type Payment = {
   wayforpay_id: string | null;
@@ -45,7 +45,6 @@ export default function AdminPaymentsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -64,30 +63,6 @@ export default function AdminPaymentsPage() {
     setPayments(p || []);
     setSubscriptions(s || []);
     setLoading(false);
-  }
-
-  async function handleDeletePayment(id: string) {
-    if (!confirm("Видалити цей платіж? Дію не можна скасувати.")) return;
-    setDeletingId(id);
-    const { error } = await supabaseAdmin.from("payments").delete().eq("id", id);
-    setDeletingId(null);
-    if (error) {
-      alert(`Не вдалося видалити платіж: ${error.message}`);
-      return;
-    }
-    setPayments(prev => prev.filter(p => p.id !== id));
-  }
-
-  async function handleDeleteSubscription(id: string) {
-    if (!confirm("Видалити цю підписку? Дію не можна скасувати.")) return;
-    setDeletingId(id);
-    const { error } = await supabaseAdmin.from("subscriptions").delete().eq("id", id);
-    setDeletingId(null);
-    if (error) {
-      alert(`Не вдалося видалити підписку: ${error.message}`);
-      return;
-    }
-    setSubscriptions(prev => prev.filter(s => s.id !== id));
   }
 
   const totalRevenue = payments.filter(p => p.status === "success").reduce((sum, p) => sum + p.amount, 0);
@@ -187,7 +162,6 @@ export default function AdminPaymentsPage() {
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Статус</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Опис</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Дата</th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -207,15 +181,6 @@ export default function AdminPaymentsPage() {
                       <td className="px-4 py-3 text-slate-500 text-xs">{p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}</td>
                       <td className="px-4 py-3 text-slate-400 text-xs">
                         {new Date(p.created_at).toLocaleDateString("uk-UA")}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleDeletePayment(p.id)}
-                          disabled={deletingId === p.id}
-                          className="text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-40"
-                        >
-                          {deletingId === p.id ? "..." : "Видалити"}
-                        </button>
                       </td>
                     </tr>
                   ))}
@@ -245,7 +210,6 @@ export default function AdminPaymentsPage() {
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Статус</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Наступний платіж</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Початок</th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -266,15 +230,6 @@ export default function AdminPaymentsPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs">
                         {new Date(s.created_at).toLocaleDateString("uk-UA")}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleDeleteSubscription(s.id)}
-                          disabled={deletingId === s.id}
-                          className="text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-40"
-                        >
-                          {deletingId === s.id ? "..." : "Видалити"}
-                        </button>
                       </td>
                     </tr>
                   ))}

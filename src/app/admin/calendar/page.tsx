@@ -12,6 +12,8 @@ type Courier = {
   subscriptions: Sub[];
 };
 
+type Entry = { id: string; full_name: string; amount: number; overdue: boolean };
+
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
 
 function startOfWeek(d: Date) {
@@ -22,8 +24,21 @@ function startOfWeek(d: Date) {
   return date;
 }
 
-function fmtDate(d: Date) {
-  return d.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit" });
+function startOfMonth(d: Date) {
+  const date = new Date(d.getFullYear(), d.getMonth(), 1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfMonth(d: Date) {
+  const date = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function fmtMonth(d: Date) {
+  const label = d.toLocaleDateString("uk-UA", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function sameDay(a: Date, b: Date) {
@@ -35,7 +50,7 @@ export default function AdminCalendarPage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [loading, setLoading] = useState(true);
   const [cityFilter, setCityFilter] = useState("all");
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(new Date()));
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -67,13 +82,21 @@ export default function AdminCalendarPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const weekDays = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      return d;
-    });
-  }, [weekStart]);
+  const monthStart = useMemo(() => startOfMonth(monthAnchor), [monthAnchor]);
+  const monthEnd = useMemo(() => endOfMonth(monthAnchor), [monthAnchor]);
+
+  const gridDays = useMemo(() => {
+    const gridStart = startOfWeek(monthStart);
+    const gridEnd = startOfWeek(monthEnd);
+    gridEnd.setDate(gridEnd.getDate() + 6);
+    const days: Date[] = [];
+    const d = new Date(gridStart);
+    while (d <= gridEnd) {
+      days.push(new Date(d));
+      d.setDate(d.getDate() + 1);
+    }
+    return days;
+  }, [monthStart, monthEnd]);
 
   // Для кожного кур'єра беремо його останню (найновішу) підписку
   function latestSub(c: Courier): Sub | null {
@@ -102,16 +125,34 @@ export default function AdminCalendarPage() {
     });
   }
 
-  const weekTotal = useMemo(() => {
+  function entriesForDay(day: Date, isToday: boolean): Entry[] {
+    const entries: Entry[] = [];
+    if (isToday) {
+      for (const c of overdueToday) {
+        const sub = latestSub(c);
+        entries.push({ id: `ov-${c.id}`, full_name: c.full_name, amount: sub?.amount || 0, overdue: true });
+      }
+    }
+    for (const c of dueOnDay(day)) {
+      const sub = latestSub(c);
+      entries.push({ id: c.id, full_name: c.full_name, amount: sub?.amount || 0, overdue: false });
+    }
+    return entries;
+  }
+
+  const monthTotal = useMemo(() => {
     let sum = 0;
-    for (const day of weekDays) {
-      for (const c of dueOnDay(day)) {
+    let d = new Date(monthStart);
+    while (d <= monthEnd) {
+      for (const c of dueOnDay(d)) {
         const sub = latestSub(c);
         if (sub) sum += sub.amount;
       }
+      d = new Date(d);
+      d.setDate(d.getDate() + 1);
     }
     return sum;
-  }, [weekDays, filtered]);
+  }, [monthStart, monthEnd, filtered]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -140,22 +181,22 @@ export default function AdminCalendarPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
+              onClick={() => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
               className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm"
             >
-              ← Тиждень
+              ← Місяць
             </button>
-            <span className="text-sm font-medium text-slate-700 px-2">
-              {fmtDate(weekDays[0])} — {fmtDate(weekDays[6])}
+            <span className="text-sm font-medium text-slate-700 px-2 min-w-[160px] text-center">
+              {fmtMonth(monthStart)}
             </span>
             <button
-              onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+              onClick={() => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
               className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm"
             >
-              Тиждень →
+              Місяць →
             </button>
             <button
-              onClick={() => setWeekStart(startOfWeek(new Date()))}
+              onClick={() => setMonthAnchor(startOfMonth(new Date()))}
               className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm text-blue-600"
             >
               Сьогодні
@@ -173,62 +214,63 @@ export default function AdminCalendarPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 flex items-center justify-between">
-          <span className="text-sm text-slate-500">Очікується оплат за тиждень</span>
-          <span className="text-xl font-bold text-slate-900">{weekTotal.toLocaleString("uk-UA")} грн</span>
+          <span className="text-sm text-slate-500">Очікується оплат за місяць</span>
+          <span className="text-xl font-bold text-slate-900">{monthTotal.toLocaleString("uk-UA")} грн</span>
         </div>
 
         {loading ? (
           <p className="text-slate-400 text-center py-12">Завантаження...</p>
         ) : (
-          <div className="grid grid-cols-7 gap-3">
-            {weekDays.map((day, i) => {
-              const isToday = sameDay(day, today);
-              const due = dueOnDay(day);
-              const showOverdue = isToday ? overdueToday : [];
-
-              return (
-                <div
-                  key={i}
-                  className={`rounded-xl border p-3 min-h-[180px] ${isToday ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"}`}
-                >
-                  <div className="flex items-baseline justify-between mb-2">
-                    <span className={`text-xs font-medium ${isToday ? "text-blue-600" : "text-slate-400"}`}>
-                      {DAY_NAMES[i]}
-                    </span>
-                    <span className={`text-sm font-bold ${isToday ? "text-blue-700" : "text-slate-600"}`}>
-                      {fmtDate(day)}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {due.map(c => {
-                      const sub = latestSub(c);
-                      return (
-                        <div key={c.id} className="bg-green-50 border border-green-100 rounded-lg px-2 py-1.5">
-                          <p className="text-xs font-medium text-slate-800 truncate">{c.full_name}</p>
-                          <p className="text-xs text-green-700">{sub?.amount.toLocaleString("uk-UA")} грн</p>
-                        </div>
-                      );
-                    })}
-
-                    {showOverdue.map(c => {
-                      const sub = latestSub(c);
-                      return (
-                        <div key={`ov-${c.id}`} className="bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
-                          <p className="text-xs font-medium text-slate-800 truncate">{c.full_name}</p>
-                          <p className="text-xs text-red-700">Борг: {sub?.amount.toLocaleString("uk-UA")} грн</p>
-                        </div>
-                      );
-                    })}
-
-                    {due.length === 0 && showOverdue.length === 0 && (
-                      <p className="text-xs text-slate-300 text-center py-4">—</p>
-                    )}
-                  </div>
+          <>
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {DAY_NAMES.map(name => (
+                <div key={name} className="text-center text-xs font-medium text-slate-400 py-1">
+                  {name}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {gridDays.map((day, i) => {
+                const isToday = sameDay(day, today);
+                const isCurrentMonth = day.getMonth() === monthStart.getMonth();
+                const entries = entriesForDay(day, isToday);
+                const visible = entries.slice(0, 3);
+                const hiddenCount = entries.length - visible.length;
+
+                return (
+                  <div
+                    key={i}
+                    className={`rounded-xl border p-2 min-h-[100px] ${
+                      isToday ? "border-blue-400 bg-blue-50" : isCurrentMonth ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-end mb-1.5">
+                      <span className={`text-xs font-bold ${isToday ? "text-blue-700" : isCurrentMonth ? "text-slate-600" : "text-slate-300"}`}>
+                        {day.getDate()}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      {visible.map(e => (
+                        <div
+                          key={e.id}
+                          className={`rounded-lg px-1.5 py-1 border ${e.overdue ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"}`}
+                        >
+                          <p className="text-[11px] font-medium text-slate-800 truncate">{e.full_name}</p>
+                          <p className={`text-[11px] ${e.overdue ? "text-red-700" : "text-green-700"}`}>
+                            {e.overdue ? "Борг: " : ""}{e.amount.toLocaleString("uk-UA")} грн
+                          </p>
+                        </div>
+                      ))}
+                      {hiddenCount > 0 && (
+                        <p className="text-[11px] text-slate-400 text-center">+{hiddenCount} ще</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>

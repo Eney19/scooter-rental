@@ -28,6 +28,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active:   { label: "Активний",  color: "bg-green-100 text-green-700" },
   pending:  { label: "Очікує",    color: "bg-yellow-100 text-yellow-700" },
   inactive: { label: "Неактивний",color: "bg-slate-100 text-slate-500" },
+  debtor:   { label: "Боржник",   color: "bg-red-100 text-red-700" },
 };
 
 export default function AdminCouriersPage() {
@@ -228,6 +229,7 @@ export default function AdminCouriersPage() {
               <option value="active">Активні</option>
               <option value="pending">Очікують</option>
               <option value="inactive">Неактивні</option>
+              <option value="debtor">Боржники</option>
             </select>
             <button onClick={loadCouriers} className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
               Оновити
@@ -412,7 +414,7 @@ export default function AdminCouriersPage() {
               <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Статус</p>
                 <div className="flex gap-2">
-                  {["active", "pending", "inactive"].map(s => (
+                  {["active", "pending", "inactive", "debtor"].map(s => (
                     <button
                       key={s}
                       onClick={() => updateStatus(selected.id, s)}

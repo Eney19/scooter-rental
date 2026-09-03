@@ -134,7 +134,15 @@ export default function AdminCouriersPage() {
         alert(data.error || "Не вдалося записати оплату");
         return;
       }
-      alert(`Готівковий платіж записано: ${data.amount} грн`);
+      if (!data.telegramLinked) {
+        alert(
+          `Готівковий платіж записано: ${data.amount} грн\n\n` +
+          `Кур'єр ще не підключений до Telegram-бота — надішліть йому посилання:\n` +
+          `https://t.me/${data.botUsername}`
+        );
+      } else {
+        alert(`Готівковий платіж записано: ${data.amount} грн`);
+      }
       await loadCouriers();
     } catch (e) {
       console.error(e);

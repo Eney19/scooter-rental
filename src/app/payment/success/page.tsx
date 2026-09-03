@@ -1,5 +1,5 @@
 export default function PaymentSuccessPage() {
-  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
 
   return (
     <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">

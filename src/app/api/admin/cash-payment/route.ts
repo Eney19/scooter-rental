@@ -100,7 +100,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, amount, expiresAt: expiresAt.toISOString() });
+    return NextResponse.json({
+      success: true,
+      amount,
+      expiresAt: expiresAt.toISOString(),
+      telegramLinked: !!courierFull?.telegram_chat_id,
+      botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot",
+    });
   } catch (error) {
     console.error("admin cash-payment error", error);
     return NextResponse.json({ success: false, error: "Error" }, { status: 500 });

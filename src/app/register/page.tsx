@@ -207,7 +207,7 @@ export default function RegisterPage() {
     }
   }
 
-  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
 
   const inp = "w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900";
   const lbl = "block text-sm font-medium text-slate-700 mb-1";

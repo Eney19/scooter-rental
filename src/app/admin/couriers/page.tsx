@@ -40,6 +40,8 @@ export default function AdminCouriersPage() {
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
+  const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
   const [docFilesLoading, setDocFilesLoading] = useState(false);
 
@@ -135,11 +137,12 @@ export default function AdminCouriersPage() {
         return;
       }
       if (!data.telegramLinked) {
-        alert(
-          `Готівковий платіж записано: ${data.amount} грн\n\n` +
-          `Кур'єр ще не підключений до Telegram-бота — надішліть йому посилання:\n` +
-          `https://t.me/${data.botUsername}`
-        );
+        setTelegramPrompt({
+          name: selected?.full_name || "",
+          phone: selected?.phone || "",
+          botUsername: data.botUsername,
+          amount: data.amount,
+        });
       } else {
         alert(`Готівковий платіж записано: ${data.amount} грн`);
       }
@@ -527,6 +530,56 @@ export default function AdminCouriersPage() {
           </div>
         )}
       </div>
+
+      {telegramPrompt && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+            <div className="text-3xl mb-2">💵📵</div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
+              Платіж записано: {telegramPrompt.amount} грн
+            </h3>
+            <p className="text-sm text-slate-500 mb-4">
+              {telegramPrompt.name || "Кур'єр"} ще не підключений до Telegram-бота.
+              Надішліть йому посилання, щоб він отримував підтвердження й нагадування.
+            </p>
+
+            <div className="bg-slate-50 rounded-xl px-3 py-2 text-sm text-slate-700 mb-3 break-all">
+              https://t.me/{telegramPrompt.botUsername}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://t.me/${telegramPrompt.botUsername}`);
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 2000);
+                }}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-medium"
+              >
+                {linkCopied ? "✅ Скопійовано" : "📋 Скопіювати посилання"}
+              </button>
+
+              {telegramPrompt.phone && (
+                <a
+                  href={`sms:${telegramPrompt.phone}?body=${encodeURIComponent(
+                    `Оплату отримано! Приєднайтесь до нашого Telegram-бота, щоб отримувати підтвердження та нагадування: https://t.me/${telegramPrompt.botUsername}`
+                  )}`}
+                  className="w-full text-center bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2.5 text-sm font-medium"
+                >
+                  💬 Надіслати SMS
+                </a>
+              )}
+
+              <button
+                onClick={() => setTelegramPrompt(null)}
+                className="w-full text-slate-400 hover:text-slate-600 text-sm py-1"
+              >
+                Закрити
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

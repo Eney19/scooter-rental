@@ -234,8 +234,6 @@ export default function AdminCalendarPage() {
                 const isToday = sameDay(day, today);
                 const isCurrentMonth = day.getMonth() === monthStart.getMonth();
                 const entries = entriesForDay(day, isToday);
-                const visible = entries.slice(0, 3);
-                const hiddenCount = entries.length - visible.length;
 
                 return (
                   <div
@@ -251,7 +249,7 @@ export default function AdminCalendarPage() {
                     </div>
 
                     <div className="space-y-1">
-                      {visible.map(e => (
+                      {entries.map(e => (
                         <div
                           key={e.id}
                           className={`rounded-lg px-1.5 py-1 border ${e.overdue ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"}`}
@@ -262,9 +260,6 @@ export default function AdminCalendarPage() {
                           </p>
                         </div>
                       ))}
-                      {hiddenCount > 0 && (
-                        <p className="text-[11px] text-slate-400 text-center">+{hiddenCount} ще</p>
-                      )}
                     </div>
                   </div>
                 );

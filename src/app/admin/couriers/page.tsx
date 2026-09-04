@@ -340,7 +340,7 @@ export default function AdminCouriersPage() {
         {/* Right: detail panel */}
         {selected && (
           <div className="w-80 shrink-0">
-            <div className="bg-white rounded-xl border border-slate-200 p-5 sticky top-6">
+            <div className="bg-white rounded-xl border border-slate-200 p-5 sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1 min-w-0">
                   <input

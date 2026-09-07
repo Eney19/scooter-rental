@@ -43,6 +43,8 @@ export default function AdminCouriersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
+  const [showReturnOptions, setShowReturnOptions] = useState(false);
+  const [returnLoading, setReturnLoading] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -70,6 +72,7 @@ export default function AdminCouriersPage() {
   function selectCourier(c: Courier | null) {
     setSelected(c);
     setShowReturnQR(false);
+    setShowReturnOptions(false);
     setDocFiles({});
     if (c) loadDocFiles(c.id);
   }
@@ -179,10 +182,40 @@ export default function AdminCouriersPage() {
   }
   function handleReturnScooter() {
     if (!selected) return;
-    if (!confirm(`Ініціювати здачу скутера для ${selected.full_name}? Кур'єру потрібно буде відсканувати QR-код і підписати акт повернення.`)) {
+    setShowReturnOptions(true);
+  }
+
+  function handleReturnWithAct() {
+    if (!selected) return;
+    setShowReturnOptions(false);
+    setShowReturnQR(true);
+  }
+
+  async function handleReturnWithoutAct() {
+    if (!selected) return;
+    if (!confirm(`Здати скутер без підпису Акту передачі для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`)) {
       return;
     }
-    setShowReturnQR(true);
+    setReturnLoading(true);
+    try {
+      const res = await fetch("/api/admin/scooter-return-no-act", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId: selected.id }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Не вдалося здати скутер");
+        return;
+      }
+      setShowReturnOptions(false);
+      await loadCouriers();
+    } catch (e) {
+      console.error(e);
+      alert("Помилка мережі. Спробуйте ще раз");
+    } finally {
+      setReturnLoading(false);
+    }
   }
 
   const filtered = couriers.filter(c => {
@@ -549,6 +582,31 @@ export default function AdminCouriersPage() {
               >
                 {cashPaymentLoading ? "Обробка..." : "💵 Оплачено готівкою"}
               </button>
+
+              {showReturnOptions && (
+                <div className="border border-slate-200 rounded-xl p-3 mb-2 bg-slate-50 space-y-2">
+                  <p className="text-xs text-slate-500 mb-1">Оберіть спосіб здачі скутера:</p>
+                  <button
+                    onClick={handleReturnWithAct}
+                    className="block w-full text-center bg-orange-500 text-white rounded-xl py-2 text-sm font-medium hover:bg-orange-600"
+                  >
+                    📝 Здача з підписом Акту Передачі
+                  </button>
+                  <button
+                    onClick={handleReturnWithoutAct}
+                    disabled={returnLoading}
+                    className="block w-full text-center border border-orange-300 text-orange-600 rounded-xl py-2 text-sm font-medium hover:bg-orange-50 disabled:opacity-60"
+                  >
+                    {returnLoading ? "Обробка..." : "Здача без підпису Акту Передачі"}
+                  </button>
+                  <button
+                    onClick={() => setShowReturnOptions(false)}
+                    className="block w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1"
+                  >
+                    Скасувати
+                  </button>
+                </div>
+              )}
 
               <button
                 onClick={handleReturnScooter}

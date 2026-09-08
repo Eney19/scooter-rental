@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     await supabaseAdmin
       .from("couriers")
-      .update({ status: "active", debt_since: null, debt_amount: null, debt_auto: false })
+      .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
       .eq("id", courierId);
 
     const { data: courierFull } = await supabaseAdmin

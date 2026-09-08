@@ -250,6 +250,7 @@ export async function POST(req: NextRequest) {
 
     const { error: courierUpdateError } = await supabaseAdmin.from("couriers").update({
       status: "pending",
+      registration_step: 3,
       city,
       address,
       tax_id: taxId,

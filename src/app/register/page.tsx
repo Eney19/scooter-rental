@@ -64,9 +64,45 @@ export default function RegisterPage() {
       setError("Будь ласка, підтвердіть ознайомлення з умовами договору"); return;
     }
     setLoading(true);
+    const phone = form.phone.trim();
+
+    // Якщо цим номером уже починали реєстрацію, але не завершили (не підписали договір) —
+    // оновлюємо той самий запис замість створення дубля, і рахуємо спробу.
+    const { data: existing } = await supabase
+      .from("couriers")
+      .select("id, registration_step, registration_attempts")
+      .eq("phone", phone)
+      .maybeSingle();
+
+    if (existing && (existing.registration_step ?? 3) < 3) {
+      const { error: updErr } = await supabase
+        .from("couriers")
+        .update({
+          full_name: form.fullName.trim(),
+          email: form.email.trim() || null,
+          registration_step: 1,
+          registration_attempts: (existing.registration_attempts || 1) + 1,
+        })
+        .eq("id", existing.id);
+      setLoading(false);
+      if (updErr) {
+        setError("Помилка реєстрації. Спробуйте ще раз.");
+        return;
+      }
+      setCourierId(existing.id);
+      setStep(2);
+      return;
+    }
+
     const { data, error: err } = await supabase
       .from("couriers")
-      .insert({ full_name: form.fullName.trim(), phone: form.phone.trim(), email: form.email.trim() || null })
+      .insert({
+        full_name: form.fullName.trim(),
+        phone,
+        email: form.email.trim() || null,
+        registration_step: 1,
+        registration_attempts: 1,
+      })
       .select("id")
       .single();
     setLoading(false);
@@ -113,6 +149,7 @@ export default function RegisterPage() {
         passport: form.passport.trim(),
         weekly_price: parseInt(finalPrice),
         scooter_model: form.scooterModel,
+        registration_step: 2,
       }).eq("id", courierId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Помилка завантаження");

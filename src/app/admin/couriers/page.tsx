@@ -25,6 +25,8 @@ type Courier = {
   debt_since: string | null;
   debt_amount: number | null;
   debt_auto: boolean | null;
+  registration_step: number | null;
+  registration_attempts: number | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -32,6 +34,12 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:  { label: "Очікує",    color: "bg-yellow-100 text-yellow-700" },
   inactive: { label: "Неактивний",color: "bg-slate-100 text-slate-500" },
   debtor:   { label: "Боржник",   color: "bg-red-100 text-red-700" },
+};
+
+const REGISTRATION_STEP_LABELS: Record<number, string> = {
+  1: "контактні дані",
+  2: "документи",
+  3: "очікує оплату",
 };
 
 export default function AdminCouriersPage() {
@@ -45,6 +53,7 @@ export default function AdminCouriersPage() {
   const [showReturnQR, setShowReturnQR] = useState(false);
   const [showReturnOptions, setShowReturnOptions] = useState(false);
   const [returnLoading, setReturnLoading] = useState(false);
+  const [deletingIncomplete, setDeletingIncomplete] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -218,6 +227,33 @@ export default function AdminCouriersPage() {
     }
   }
 
+  async function handleDeleteIncomplete() {
+    if (!selected) return;
+    if (!confirm(`Видалити незавершену реєстрацію "${selected.full_name}" (${selected.phone})? Договір ще не підписано, тож дію можна виконати безпечно.`)) {
+      return;
+    }
+    setDeletingIncomplete(true);
+    try {
+      const res = await fetch("/api/admin/delete-incomplete-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId: selected.id }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Не вдалося видалити реєстрацію");
+        return;
+      }
+      selectCourier(null);
+      await loadCouriers();
+    } catch (e) {
+      console.error(e);
+      alert("Помилка мережі. Спробуйте ще раз");
+    } finally {
+      setDeletingIncomplete(false);
+    }
+  }
+
   const filtered = couriers.filter(c => {
     const matchSearch = !search ||
       c.full_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -344,6 +380,12 @@ export default function AdminCouriersPage() {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_LABELS[c.status || "pending"]?.color || "bg-yellow-100 text-yellow-700"}`}>
                           {STATUS_LABELS[c.status || "pending"]?.label || "Очікує"}
                         </span>
+                        {(c.status || "pending") === "pending" && (
+                          <div className="text-slate-400 text-[11px] mt-1">
+                            {REGISTRATION_STEP_LABELS[c.registration_step ?? 3] || "очікує оплату"}
+                            {c.registration_attempts && c.registration_attempts > 1 ? ` · спроба ${c.registration_attempts}` : ""}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {c.debt_amount ? (
@@ -387,6 +429,23 @@ export default function AdminCouriersPage() {
                 </div>
                 <button onClick={() => selectCourier(null)} className="text-slate-300 hover:text-slate-500 text-lg">×</button>
               </div>
+
+              {(selected.status || "pending") === "pending" && (selected.registration_step ?? 3) < 3 && (
+                <div className="border border-amber-200 bg-amber-50 rounded-xl p-3 mb-4">
+                  <p className="text-xs text-amber-700 mb-2">
+                    Реєстрацію не завершено: зупинився на кроці «{REGISTRATION_STEP_LABELS[selected.registration_step ?? 1]}»
+                    {selected.registration_attempts && selected.registration_attempts > 1 ? ` (спроб: ${selected.registration_attempts})` : ""}.
+                    Договір ще не підписано.
+                  </p>
+                  <button
+                    onClick={handleDeleteIncomplete}
+                    disabled={deletingIncomplete}
+                    className="text-xs font-medium text-amber-700 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {deletingIncomplete ? "Видалення..." : "🗑 Видалити незавершену реєстрацію"}
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex gap-2 items-center">

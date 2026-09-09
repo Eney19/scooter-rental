@@ -2,6 +2,7 @@
 import { useState, useRef, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { BATTERY_OPTIONS, getBatteryWeeklyPrice } from "@/lib/pricing";
 import SignaturePad from "signature_pad";
 
 type Step = 1 | 2 | 3;
@@ -15,12 +16,13 @@ type FormState = {
   passport: string;
   weeklyPrice: string;
   scooterModel: string;
+  batteries: string[];
 };
 
 const init: FormState = {
   fullName: "", phone: "+380", email: "",
   city: "Луцьк", address: "", taxId: "", passport: "",
-  weeklyPrice: "2400", scooterModel: "FADA Flit II"
+  weeklyPrice: "2400", scooterModel: "FADA Flit II", batteries: []
 };
 
 const CONTRACT_URL = "https://jaenpkdnhlcpyyzwlqui.supabase.co/storage/v1/object/public/templates/contract-template.pdf";
@@ -53,6 +55,13 @@ export default function RegisterPage() {
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm(p => ({ ...p, [k]: v }));
     setError(null);
+  }
+
+  function toggleBattery(id: string) {
+    setForm(p => ({
+      ...p,
+      batteries: p.batteries.includes(id) ? p.batteries.filter(b => b !== id) : [...p.batteries, id],
+    }));
   }
 
   async function handleStep1(e: FormEvent<HTMLFormElement>) {
@@ -141,14 +150,16 @@ export default function RegisterPage() {
       await uploadFile(propyskaFile, "propiska");
       await uploadFile(rnokppFile, "rnokpp");
       const finalPrice = customPrice || form.weeklyPrice;
-      
+      const totalWeeklyPrice = parseInt(finalPrice) + getBatteryWeeklyPrice(form.batteries);
+
       await supabase.from("couriers").update({
         city: form.city,
         address: form.address.trim(),
         tax_id: form.taxId.trim(),
         passport: form.passport.trim(),
-        weekly_price: parseInt(finalPrice),
+        weekly_price: totalWeeklyPrice,
         scooter_model: form.scooterModel,
+        battery_types: form.batteries,
         registration_step: 2,
       }).eq("id", courierId);
     } catch (err: unknown) {
@@ -198,6 +209,7 @@ export default function RegisterPage() {
 
     const signatureDataUrl = sigPadRef.current.toDataURL("image/png");
     const finalPrice = customPrice || form.weeklyPrice;
+    const totalWeeklyPrice = parseInt(finalPrice) + getBatteryWeeklyPrice(form.batteries);
     const signRes = await fetch("/api/sign-contract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -209,8 +221,9 @@ export default function RegisterPage() {
         passport: form.passport,
         address: form.address,
         city: form.city,
-        weeklyPrice: finalPrice,
+        weeklyPrice: totalWeeklyPrice,
         scooterModel: form.scooterModel,
+        batteryTypes: form.batteries,
         signatureDataUrl,
         courierId,
       })
@@ -434,6 +447,33 @@ export default function RegisterPage() {
                 <select value={form.scooterModel} onChange={e=>set("scooterModel",e.target.value)} className={inp}>
                   {SCOOTER_MODELS.map(m=><option key={m} value={m}>{m}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className={lbl}>Оренда акумулятора (необов&apos;язково)</label>
+                <div className="space-y-2">
+                  {BATTERY_OPTIONS.map(b => (
+                    <label
+                      key={b.id}
+                      className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-all ${form.batteries.includes(b.id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={form.batteries.includes(b.id)}
+                          onChange={() => toggleBattery(b.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span className="text-slate-700 text-sm">{b.label}</span>
+                      </span>
+                      <span className="text-slate-500 text-sm shrink-0">+{b.weeklyPrice} грн/тиж</span>
+                    </label>
+                  ))}
+                </div>
+                {form.batteries.length > 0 && (
+                  <p className="text-xs text-slate-400 mt-2">
+                    Тариф зі скутером і акумулятором: {(parseInt(customPrice || form.weeklyPrice || "0") || 0) + getBatteryWeeklyPrice(form.batteries)} грн/тиж
+                  </p>
+                )}
               </div>
             </div>
             <div className="border-t border-slate-100 pt-4">

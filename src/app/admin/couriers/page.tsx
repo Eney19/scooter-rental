@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { getBatteryLabels } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -27,6 +28,7 @@ type Courier = {
   debt_auto: boolean | null;
   registration_step: number | null;
   registration_attempts: number | null;
+  battery_types: string[] | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -375,6 +377,9 @@ export default function AdminCouriersPage() {
                       <td className="px-4 py-3">
                         <div className="text-slate-600">{c.scooter_model || "—"}</div>
                         <div className="text-slate-400 text-xs">{c.weekly_price ? `${c.weekly_price} грн/тиж` : "—"}</div>
+                        {getBatteryLabels(c.battery_types).length > 0 && (
+                          <div className="text-blue-500 text-[11px] mt-0.5">🔋 {getBatteryLabels(c.battery_types).join(", ")}</div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_LABELS[c.status || "pending"]?.color || "bg-yellow-100 text-yellow-700"}`}>
@@ -504,6 +509,12 @@ export default function AdminCouriersPage() {
                     className={fieldInputClass}
                   />
                 </div>
+                {getBatteryLabels(selected.battery_types).length > 0 && (
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
+                    <span className="text-slate-700 text-sm">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
+                  </div>
+                )}
                 <div className="flex gap-2 items-center">
                   <span className="text-slate-400 w-20 shrink-0">РНОКПП</span>
                   <input

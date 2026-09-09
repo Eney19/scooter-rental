@@ -3,6 +3,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getBatteryLabels } from "@/lib/pricing";
 
 // За замовчуванням на Hobby-тарифі Vercel функція обривається через 10с — цього
 // не вистачає на генерацію PDF (кілька fetch-запитів + рендеринг) і заливку в Storage.
@@ -88,7 +89,7 @@ function numberToWords(num: number): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { courierName, courierPhone, courierEmail, taxId, passport, address, city, weeklyPrice, scooterModel, signatureDataUrl, courierId } = await req.json();
+    const { courierName, courierPhone, courierEmail, taxId, passport, address, city, weeklyPrice, scooterModel, batteryTypes, signatureDataUrl, courierId } = await req.json();
 
     console.log("sign-contract START", city, scooterModel);
 
@@ -121,6 +122,9 @@ export async function POST(req: NextRequest) {
     const price = weeklyPrice || "2400";
     const priceWords = numberToWords(parseInt(price));
     const returnAddr = RETURN_ADDRESSES[city] || "";
+    const batteryList: string[] = Array.isArray(batteryTypes) ? batteryTypes : [];
+    const batteryLabels = getBatteryLabels(batteryList);
+    const batterySuffix = batteryLabels.length ? ` (у т.ч. ${batteryLabels.join(", ")})` : "";
 
     const FS = 10;
 
@@ -257,6 +261,7 @@ export async function POST(req: NextRequest) {
       passport_series: passport,
       weekly_price: parseInt(price) || 2400,
       scooter_model: scooterModel,
+      battery_types: batteryList,
     }).eq("id", courierId);
     if (courierUpdateError) {
       console.error("sign-contract: couriers profile update failed", courierUpdateError, "pdfUrl was:", pdfUrl);
@@ -269,7 +274,7 @@ export async function POST(req: NextRequest) {
           from: "ScooterRental <onboarding@resend.dev>",
           to: courierEmail,
           subject: "Договір підписано",
-          html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + city + " | " + price + " грн/тиж | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
+          html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
         });
       } catch (emailErr) {
         console.error("Email error", emailErr);
@@ -282,7 +287,7 @@ export async function POST(req: NextRequest) {
         from: "ScooterRental <onboarding@resend.dev>",
         to: FOP_EMAIL,
         subject: "Новий підписаний договір №" + contractNumber,
-        html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + courierPhone + " | " + city + " | " + price + " грн/тиж | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
+        html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + courierPhone + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
         attachments: [
           { filename: "contract-" + contractNumber + ".pdf", content: signedPdfBuffer.toString("base64") },
         ],
@@ -303,7 +308,7 @@ export async function POST(req: NextRequest) {
             document: pdfUrl,
             caption:
               "📄 Новий підписаний договір №" + contractNumber + "\n" +
-              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж | " + scooterModel,
+              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel,
           }),
         });
 
@@ -316,7 +321,7 @@ export async function POST(req: NextRequest) {
             parse_mode: "HTML",
             text:
               "🆕 <b>Новий кур'єр зареєструвався</b>\n\n" +
-              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж | " + scooterModel + "\n\n" +
+              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "\n\n" +
               "⏳ Очікує оплати (онлайн або готівкою)",
           }),
         });

@@ -44,6 +44,28 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     if (!city) return DEFAULT_DEPOSIT;
     return DEPOSIT_BY_CITY[city.trim()] ?? DEFAULT_DEPOSIT;
   }
+
+  // Оренда акумулятора — опційна, обирається під час реєстрації паралельно зі
+  // скутером (можна вибрати кілька) і додається до тижневої оренди скутера.
+  export const BATTERY_OPTIONS = [
+    { id: "60A", label: "Акумулятор 60 А", weeklyPrice: 800 },
+    { id: "70A", label: "Акумулятор 70 А", weeklyPrice: 1000 },
+  ] as const;
+
+  export function getBatteryWeeklyPrice(batteryIds: string[] | null | undefined): number {
+    if (!batteryIds || batteryIds.length === 0) return 0;
+    return batteryIds.reduce((sum, id) => {
+      const opt = BATTERY_OPTIONS.find(b => b.id === id);
+      return sum + (opt?.weeklyPrice || 0);
+    }, 0);
+  }
+
+  export function getBatteryLabels(batteryIds: string[] | null | undefined): string[] {
+    if (!batteryIds || batteryIds.length === 0) return [];
+    return batteryIds
+      .map(id => BATTERY_OPTIONS.find(b => b.id === id)?.label as string | undefined)
+      .filter(Boolean) as string[];
+  }
   // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер
   // протягом DEBT_GRACE_DAYS днів після закінчення підписки, він автоматично
   // стає боржником. З цього моменту щодня нараховується пеня DEBT_PENALTY_PER_DAY.

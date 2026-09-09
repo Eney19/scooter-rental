@@ -221,7 +221,7 @@ export default function RegisterPage() {
         passport: form.passport,
         address: form.address,
         city: form.city,
-        weeklyPrice: totalWeeklyPrice,
+        weeklyPrice: String(totalWeeklyPrice),
         scooterModel: form.scooterModel,
         batteryTypes: form.batteries,
         signatureDataUrl,

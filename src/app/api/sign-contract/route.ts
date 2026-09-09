@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     const dateStr = now.toLocaleDateString("uk-UA");
 
     const contractNumber = generateContractNumber(city, courierId);
-    const price = weeklyPrice || "2400";
+    const price = String(weeklyPrice || "2400");
     const priceWords = numberToWords(parseInt(price));
     const returnAddr = RETURN_ADDRESSES[city] || "";
     const batteryList: string[] = Array.isArray(batteryTypes) ? batteryTypes : [];

@@ -9,7 +9,9 @@ export async function POST(req: NextRequest) {
 
     console.log("verify-sms phone:", phone, "code:", code);
 
-    // Шукаємо останній невикористаний код для цього телефону
+    // Шукаємо невикористаний код для цього телефону (без сортування — воно
+    // раніше посилалось на неіснуючу в таблиці колонку й через це запит завжди
+    // падав з помилкою, тож ЖОДЕН код ніколи не проходив перевірку).
     const { data, error } = await supabaseAdmin
       .from("signing_logs")
       .select("*")
@@ -17,11 +19,14 @@ export async function POST(req: NextRequest) {
       .eq("sms_code", trimmedCode)
       .eq("used", false)
       .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
+      console.error("verify-sms query error:", error);
+      return NextResponse.json({ success: false, error: "Помилка перевірки коду" }, { status: 500 });
+    }
+    if (!data) {
       return NextResponse.json({ success: false, error: "Невірний або застарілий код" });
     }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price")
+    .select("full_name, phone, email, city, weekly_price, battery_types")
     .eq("id", courierId)
     .single();
 
@@ -21,6 +21,8 @@ export async function POST(req: NextRequest) {
   }
 
   const baseAmount = getWeeklyPrice(courier);
+  const batteryWeeklyPrice = getBatteryWeeklyPrice(courier.battery_types);
+  const batteryLabels = getBatteryLabels(courier.battery_types);
 
   const { data: overdueSub } = await supabaseAdmin
     .from("subscriptions")
@@ -94,6 +96,8 @@ export async function POST(req: NextRequest) {
       amount: amountUAH,
       rentAmount,
       deposit,
+      batteryWeeklyPrice,
+      batteryLabels,
     });
   } catch (error) {
     console.error("Monobank create error:", error);

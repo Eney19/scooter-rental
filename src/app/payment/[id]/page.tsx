@@ -12,6 +12,8 @@ export default function PaymentPage() {
   const [amount, setAmount] = useState<number | null>(null);
   const [rentAmount, setRentAmount] = useState<number | null>(null);
   const [deposit, setDeposit] = useState<number>(0);
+  const [batteryWeeklyPrice, setBatteryWeeklyPrice] = useState<number>(0);
+  const [batteryLabels, setBatteryLabels] = useState<string[]>([]);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +36,8 @@ export default function PaymentPage() {
         setAmount(data.amount);
         setRentAmount(data.rentAmount ?? data.amount);
         setDeposit(data.deposit ?? 0);
+        setBatteryWeeklyPrice(data.batteryWeeklyPrice ?? 0);
+        setBatteryLabels(data.batteryLabels ?? []);
         setPageUrl(data.pageUrl);
 
         if (data.deposit > 0) {
@@ -73,9 +77,15 @@ export default function PaymentPage() {
             <h1 className="text-2xl font-bold text-slate-900">Оренда електроскутера</h1>
             <div className="mt-4 text-left bg-slate-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-slate-600">
-                <span>Оренда за 7 днів</span>
-                <span className="font-medium">{rentAmount} грн</span>
+                <span>Оренда скутера за 7 днів</span>
+                <span className="font-medium">{rentAmount !== null ? rentAmount - batteryWeeklyPrice : rentAmount} грн</span>
               </div>
+              {batteryWeeklyPrice > 0 && (
+                <div className="flex justify-between text-slate-600">
+                  <span>Оренда акумулятора {batteryLabels.map(l => l.replace(/^Акумулятор\s*/, "")).join(", ")}</span>
+                  <span className="font-medium">{batteryWeeklyPrice} грн</span>
+                </div>
+              )}
               <div className="flex justify-between text-slate-600">
                 <span>Завдаток за скутер</span>
                 <span className="font-medium">{deposit} грн</span>

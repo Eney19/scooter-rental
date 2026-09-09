@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       .eq("sms_code", trimmedCode)
       .eq("used", false)
       .gt("expires_at", new Date().toISOString())
-      .order("signed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .single();
 

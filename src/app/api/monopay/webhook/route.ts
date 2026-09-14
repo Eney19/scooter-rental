@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicKey, createVerify } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
+import { nextExpiryFrom } from "@/lib/subscription";
 
 let cachedPubKey: string | null = null;
 
@@ -69,15 +70,18 @@ export async function POST(req: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(1);
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
-
       const { data: existingSub } = await supabaseAdmin
         .from("subscriptions")
-        .select("id")
+        .select("id, expires_at")
         .eq("courier_id", courierId)
         .eq("status", "active")
         .single();
+
+      // Якщо є ще неспливла оплачена підписка (кур'єр платить наперед) —
+      // нові 7 днів рахуються від її expires_at, а не "від сьогодні",
+      // інакше передоплата з'їдає вже оплачені дні. Якщо активної підписки
+      // немає (кур'єр був неактивний і бере скутер знову) — відлік від зараз.
+      const expiresAt = nextExpiryFrom(existingSub?.expires_at);
 
       if (existingSub) {
         await supabaseAdmin

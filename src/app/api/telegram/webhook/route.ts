@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
+import { nextExpiryFrom } from "@/lib/subscription";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
@@ -88,8 +89,6 @@ export async function POST(req: NextRequest) {
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
         const amount = totalWithPenalty(getWeeklyPrice(courier), late);
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
         const now = new Date().toISOString();
 
         // Записуємо готівковий платіж
@@ -101,13 +100,17 @@ export async function POST(req: NextRequest) {
           wayforpay_id: `cash_${Date.now()}`,
         });
 
-        // Оновлюємо або створюємо підписку
+        // Оновлюємо або створюємо підписку. Той самий принцип, що й у
+        // monopay-вебхуку: якщо активна підписка ще не спливла (оплата
+        // наперед) — 7 днів рахуються від її expires_at, а не від зараз.
         const { data: existingSub } = await supabaseAdmin
           .from("subscriptions")
-          .select("id")
+          .select("id, expires_at")
           .eq("courier_id", courierId)
           .eq("status", "active")
           .single();
+
+        const expiresAt = nextExpiryFrom(existingSub?.expires_at);
 
         if (existingSub) {
           await supabaseAdmin

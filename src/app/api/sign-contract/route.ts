@@ -3,6 +3,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
+import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
 import { getBatteryLabels } from "@/lib/pricing";
 
 // За замовчуванням на Hobby-тарифі Vercel функція обривається через 10с — цього
@@ -330,7 +331,18 @@ export async function POST(req: NextRequest) {
       console.error("Admin telegram error", tgErr);
     }
 
-    return NextResponse.json({ success: true, pdfUrl, contractNumber });
+    // Телефон щойно підтверджено SMS-кодом (крок 2 реєстрації) — тож можна
+    // одразу видати сесію особистого кабінету, не змушуючи кур'єра ще раз
+    // проходити SMS окремо на /cabinet/login.
+    const res = NextResponse.json({ success: true, pdfUrl, contractNumber });
+    res.cookies.set(CABINET_COOKIE_NAME, createSessionToken(courierId), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: CABINET_COOKIE_MAX_AGE_SECONDS,
+    });
+    return res;
 
   } catch (error) {
     console.error("sign-contract error", error);

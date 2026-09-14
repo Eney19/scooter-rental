@@ -38,12 +38,18 @@ export default function Home() {
             Оренда та повне технічне обслуговування електроскутерів для кур'єрів
             Bolt і Glovo. Ремонт, договір і підтримка — без турбот з твого боку.
           </p>
-          <div className="mt-7">
+          <div className="mt-7 flex flex-wrap items-center gap-4">
             <Link
               href="/register"
               className="h-12 px-7 inline-flex items-center rounded-full bg-white text-[#10131c] font-bold hover:bg-[#e7eaf5] transition-colors"
             >
               Зареєструватися
+            </Link>
+            <Link
+              href="/cabinet/login"
+              className="h-12 px-7 inline-flex items-center rounded-full border border-white/30 text-white font-bold hover:bg-white/10 transition-colors"
+            >
+              Особистий кабінет
             </Link>
           </div>
         </div>

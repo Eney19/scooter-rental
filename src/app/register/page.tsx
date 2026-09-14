@@ -43,6 +43,12 @@ export default function RegisterPage() {
   const [contractPdfUrl, setContractPdfUrl] = useState<string | null>(null);
   const [cashRequested, setCashRequested] = useState(false);
   const [cashLoading, setCashLoading] = useState(false);
+  const [cabinetPassword, setCabinetPassword] = useState("");
+  const [cabinetPassword2, setCabinetPassword2] = useState("");
+  const [cabinetPasswordSaved, setCabinetPasswordSaved] = useState(false);
+  const [cabinetPasswordSaving, setCabinetPasswordSaving] = useState(false);
+  const [cabinetPasswordError, setCabinetPasswordError] = useState<string | null>(null);
+  const [telegramJoined, setTelegramJoined] = useState(false);
   const [passportFile, setPassportFile] = useState<File | null>(null);
   const [propyskaFile, setPropyskaFile] = useState<File | null>(null);
   const [rnokppFile, setRnokppFile] = useState<File | null>(null);
@@ -71,6 +77,13 @@ export default function RegisterPage() {
     }
     if (!consentContract) {
       setError("Будь ласка, підтвердіть ознайомлення з умовами договору"); return;
+    }
+    const emailTrimmed = form.email.trim();
+    if (!emailTrimmed) {
+      setError("Будь ласка, вкажіть email — він потрібен для входу в особистий кабінет"); return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      setError("Вкажіть коректний email"); return;
     }
     setLoading(true);
     const phone = form.phone.trim();
@@ -257,7 +270,94 @@ export default function RegisterPage() {
     }
   }
 
+  async function saveCabinetPassword() {
+    if (cabinetPassword.length < 6) { setCabinetPasswordError("Пароль має містити щонайменше 6 символів"); return; }
+    if (cabinetPassword !== cabinetPassword2) { setCabinetPasswordError("Паролі не збігаються"); return; }
+    setCabinetPasswordSaving(true);
+    setCabinetPasswordError(null);
+    try {
+      const res = await fetch("/api/cabinet/set-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: cabinetPassword }),
+      });
+      const data = await res.json();
+      if (!data.success) { setCabinetPasswordError(data.error || "Помилка збереження паролю"); return; }
+      setCabinetPasswordSaved(true);
+    } catch {
+      setCabinetPasswordError("Помилка з'єднання");
+    } finally {
+      setCabinetPasswordSaving(false);
+    }
+  }
+
   const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
+
+  function renderTelegramPasswordWidget() {
+    if (!telegramJoined) {
+      return (
+        <div className="border-t border-slate-100 mt-6 pt-5 text-center">
+          <p className="text-sm font-semibold text-slate-900 mb-1">Приєднайтесь до Telegram-бота</p>
+          <p className="text-xs text-slate-400 mb-3">
+            У боті ви отримаєте підтвердження та нагадування про наступні оплати. Після цього — встановите пароль для входу в особистий кабінет.
+          </p>
+          {botUsername && (
+            <a
+              href={`https://t.me/${botUsername}`}
+              target="_blank"
+              className="inline-block bg-blue-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-blue-600 mb-3"
+            >
+              💬 Приєднатися до Telegram-бота
+            </a>
+          )}
+          <button
+            onClick={() => setTelegramJoined(true)}
+            className="w-full border-2 border-slate-200 text-slate-700 rounded-xl py-3 font-semibold hover:bg-slate-50"
+          >
+            Я приєднався, далі →
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="border-t border-slate-100 mt-6 pt-5 text-left">
+        {!cabinetPasswordSaved ? (
+          <>
+            <p className="text-sm font-semibold text-slate-900 mb-1">Встановіть пароль для особистого кабінету</p>
+            <p className="text-xs text-slate-400 mb-3">
+              Номер телефону вже підтверджено — далі заходьте в кабінет паролем, без SMS.
+            </p>
+            <input
+              type="password"
+              value={cabinetPassword}
+              onChange={(e) => setCabinetPassword(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 mb-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900"
+              placeholder="Пароль (щонайменше 6 символів)"
+            />
+            <input
+              type="password"
+              value={cabinetPassword2}
+              onChange={(e) => setCabinetPassword2(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 mb-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900"
+              placeholder="Повторіть пароль"
+            />
+            {cabinetPasswordError && <p className="bg-red-50 text-red-700 px-4 py-2 rounded-xl text-sm mb-2">{cabinetPasswordError}</p>}
+            <button
+              onClick={saveCabinetPassword}
+              disabled={cabinetPasswordSaving}
+              className="w-full border-2 border-slate-200 text-slate-700 rounded-xl py-3 font-semibold hover:bg-slate-50 disabled:opacity-60"
+            >
+              {cabinetPasswordSaving ? "Збереження..." : "Зберегти пароль"}
+            </button>
+          </>
+        ) : (
+          <p className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm text-center">
+            Пароль збережено! Кабінет — <a href="/cabinet" className="underline font-semibold">powerdrive.in.ua/cabinet</a>
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const inp = "w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900";
   const lbl = "block text-sm font-medium text-slate-700 mb-1";
@@ -293,16 +393,7 @@ export default function RegisterPage() {
         <p className="text-slate-500 mt-2 mb-4">
           Адміністратора сповіщено. Щойно він підтвердить отримання готівки — ваша підписка активується автоматично.
         </p>
-        {botUsername && (
-          <a
-            href={`https://t.me/${botUsername}`}
-            target="_blank"
-            className="inline-block bg-blue-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-blue-600"
-          >
-            💬 Приєднатися до Telegram-бота
-          </a>
-        )}
-        <p className="text-slate-400 text-xs mt-3">У боті ви отримаєте підтвердження та нагадування про наступні оплати.</p>
+        {renderTelegramPasswordWidget()}
       </div>
     </div>
   );
@@ -333,6 +424,8 @@ export default function RegisterPage() {
           <span>💵</span>
           <span>{cashLoading ? "Надсилаємо..." : "Оплата готівкою на місці"}</span>
         </button>
+
+        {renderTelegramPasswordWidget()}
       </div>
     </div>
   );
@@ -360,8 +453,9 @@ export default function RegisterPage() {
             <div><label className={lbl}>Номер телефону *</label>
               <input type="tel" required value={form.phone} onChange={e=>set("phone",e.target.value)} className={inp} placeholder="+380501234567"/>
             </div>
-            <div><label className={lbl}>Email</label>
-              <input type="email" value={form.email} onChange={e=>set("email",e.target.value)} className={inp} placeholder="email@example.com"/>
+            <div><label className={lbl}>Email *</label>
+              <input type="email" required value={form.email} onChange={e=>set("email",e.target.value)} className={inp} placeholder="email@example.com"/>
+              <p className="text-xs text-slate-400 mt-1">Потрібен для входу в особистий кабінет (пароль, відновлення) — без email кабінет буде недоступний.</p>
             </div>
 
             <div className="border-t border-slate-100 pt-4 space-y-3">

@@ -29,6 +29,7 @@ type Courier = {
   registration_step: number | null;
   registration_attempts: number | null;
   battery_types: string[] | null;
+  last_cabinet_login_at: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -43,6 +44,23 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
   2: "документи",
   3: "очікує оплату",
 };
+
+type SubInfo = { expires_at: string; paid_at: string | null; amount: number };
+
+function weeksWord(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "тиждень";
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "тижні";
+  return "тижнів";
+}
+
+// Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
+// (1 = оплачено лише поточний тиждень, 2+ = є оплата наперед).
+function weeksAheadPaid(expiresAt: string): number {
+  const diffMs = new Date(expiresAt).getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
+}
 
 export default function AdminCouriersPage() {
   const router = useRouter();
@@ -61,6 +79,7 @@ export default function AdminCouriersPage() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
   const [docFilesLoading, setDocFilesLoading] = useState(false);
+  const [subsByCourier, setSubsByCourier] = useState<Record<string, SubInfo>>({});
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -77,6 +96,17 @@ export default function AdminCouriersPage() {
       .select("*")
       .order("created_at", { ascending: false });
     setCouriers(data || []);
+
+    const { data: subs } = await supabase
+      .from("subscriptions")
+      .select("courier_id, expires_at, paid_at, amount")
+      .eq("status", "active");
+    const map: Record<string, SubInfo> = {};
+    (subs || []).forEach((s) => {
+      map[s.courier_id] = { expires_at: s.expires_at, paid_at: s.paid_at, amount: s.amount };
+    });
+    setSubsByCourier(map);
+
     setLoading(false);
   }
 
@@ -391,6 +421,22 @@ export default function AdminCouriersPage() {
                             {c.registration_attempts && c.registration_attempts > 1 ? ` · спроба ${c.registration_attempts}` : ""}
                           </div>
                         )}
+                        {subsByCourier[c.id] && (() => {
+                          const sub = subsByCourier[c.id];
+                          const weeks = weeksAheadPaid(sub.expires_at);
+                          const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
+                          if (weeks <= 0) {
+                            return <div className="text-red-500 text-[11px] mt-1">Прострочено з {dateStr}</div>;
+                          }
+                          return (
+                            <div className="text-[11px] mt-1">
+                              <span className="text-slate-400">Оплачено до {dateStr}</span>
+                              {weeks >= 2 && (
+                                <span className="ml-1 text-emerald-600 font-medium">· +{weeks - 1} {weeksWord(weeks - 1)} наперед</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3">
                         {c.debt_amount ? (
@@ -566,6 +612,36 @@ export default function AdminCouriersPage() {
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Підписка</p>
+                {subsByCourier[selected.id] ? (() => {
+                  const sub = subsByCourier[selected.id];
+                  const weeks = weeksAheadPaid(sub.expires_at);
+                  const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
+                  return (
+                    <div className="text-sm space-y-1">
+                      {weeks <= 0 ? (
+                        <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
+                      ) : (
+                        <p className="text-slate-700">
+                          Оплачено до <span className="font-medium">{dateStr}</span>
+                          {weeks >= 2 && (
+                            <span className="text-emerald-600 font-medium"> (це і {weeks - 1} {weeksWord(weeks - 1)} наперед)</span>
+                          )}
+                        </p>
+                      )}
+                      {sub.paid_at && (
+                        <p className="text-slate-400 text-xs">
+                          Остання оплата: {new Date(sub.paid_at).toLocaleDateString("uk-UA")} · {sub.amount} грн
+                        </p>
+                      )}
+                    </div>
+                  );
+                })() : (
+                  <p className="text-slate-300 text-sm">Немає активної підписки</p>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Заборгованість</p>
                 <div className="space-y-2">
                   <div className="flex gap-2 items-center">
@@ -724,6 +800,9 @@ export default function AdminCouriersPage() {
                 {selected.return_signed_at && (
                   <><br/>Повернення: {new Date(selected.return_signed_at).toLocaleDateString("uk-UA")}</>
                 )}
+                <br/>Останній вхід у кабінет: {selected.last_cabinet_login_at
+                  ? new Date(selected.last_cabinet_login_at).toLocaleString("uk-UA")
+                  : "ще не заходив(ла)"}
               </p>
             </div>
           </div>

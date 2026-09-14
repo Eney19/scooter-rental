@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
+import { nextExpiryFrom } from "@/lib/subscription";
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,8 +31,6 @@ export async function POST(req: NextRequest) {
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
     const amount = totalWithPenalty(getWeeklyPrice(courier), late);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
     const now = new Date().toISOString();
 
     await supabaseAdmin.from("payments").insert({
@@ -44,10 +43,14 @@ export async function POST(req: NextRequest) {
 
     const { data: existingSub } = await supabaseAdmin
       .from("subscriptions")
-      .select("id")
+      .select("id, expires_at")
       .eq("courier_id", courierId)
       .eq("status", "active")
       .single();
+
+    // Той самий принцип, що і для monopay-вебхука: продовжуємо від поточного
+    // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від зараз.
+    const expiresAt = nextExpiryFrom(existingSub?.expires_at);
 
     if (existingSub) {
       await supabaseAdmin

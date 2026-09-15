@@ -66,6 +66,21 @@ function fmtDate(d: string | null) {
   return new Date(d).toLocaleDateString("uk-UA");
 }
 
+function weeksWord(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "тиждень";
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "тижні";
+  return "тижнів";
+}
+
+// Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
+// (1 = оплачено лише поточний тиждень, 2+ = є оплата наперед).
+function weeksAheadPaid(expiresAt: string): number {
+  const diffMs = new Date(expiresAt).getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
+}
+
 export default function CabinetPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -369,9 +384,19 @@ export default function CabinetPage() {
                 {courier.battery_types.map((id) => BATTERY_OPTIONS.find((b) => b.id === id)?.label || id).join(", ")}
               </span></p>
             )}
-            {isActive && activeSub && (
-              <p>Оплачено до: <span className="font-medium text-slate-900">{fmtDate(activeSub.expires_at)}</span></p>
-            )}
+            {isActive && activeSub && (() => {
+              const weeksAhead = weeksAheadPaid(activeSub.expires_at);
+              return (
+                <p>
+                  Оплачено до: <span className="font-medium text-slate-900">{fmtDate(activeSub.expires_at)}</span>
+                  {weeksAhead >= 2 && (
+                    <span className="ml-1 text-emerald-600 font-medium">
+                      (+{weeksAhead - 1} {weeksWord(weeksAhead - 1)} наперед)
+                    </span>
+                  )}
+                </p>
+              );
+            })()}
             {!isActive && courier.return_signed_at && (
               <p>Скутер здано: <span className="font-medium text-slate-900">{fmtDate(courier.return_signed_at)}</span></p>
             )}

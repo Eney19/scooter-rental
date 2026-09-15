@@ -9,6 +9,7 @@ type Courier = {
   full_name: string;
   phone: string;
   city: string | null;
+  status: string | null;
   subscriptions: Sub[];
 };
 
@@ -50,6 +51,7 @@ export default function AdminCalendarPage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [loading, setLoading] = useState(true);
   const [cityFilter, setCityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(new Date()));
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export default function AdminCalendarPage() {
     setLoading(true);
     const { data } = await supabase
       .from("couriers")
-      .select("id, full_name, phone, city, subscriptions(id, expires_at, amount, status)");
+      .select("id, full_name, phone, city, status, subscriptions(id, expires_at, amount, status)");
     setCouriers((data as Courier[]) || []);
     setLoading(false);
   }
@@ -75,8 +77,13 @@ export default function AdminCalendarPage() {
   }, [couriers]);
 
   const filtered = useMemo(
-    () => (cityFilter === "all" ? couriers : couriers.filter(c => c.city === cityFilter)),
-    [couriers, cityFilter]
+    () =>
+      couriers.filter(c => {
+        const matchCity = cityFilter === "all" || c.city === cityFilter;
+        const matchStatus = statusFilter === "all" || c.status === statusFilter;
+        return matchCity && matchStatus;
+      }),
+    [couriers, cityFilter, statusFilter]
   );
 
   const today = new Date();
@@ -206,14 +213,27 @@ export default function AdminCalendarPage() {
             </button>
           </div>
 
-          <select
-            value={cityFilter}
-            onChange={e => setCityFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-          >
-            <option value="all">Всі міста</option>
-            {cities.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={cityFilter}
+              onChange={e => setCityFilter(e.target.value)}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option value="all">Всі міста</option>
+              {cities.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option value="all">Всі статуси</option>
+              <option value="active">Активні</option>
+              <option value="pending">Очікують</option>
+              <option value="inactive">Неактивні</option>
+              <option value="debtor">Боржники</option>
+            </select>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 flex items-center justify-between">

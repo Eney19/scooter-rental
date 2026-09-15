@@ -10,7 +10,7 @@ export async function GET() {
 
   const { data: payments, error } = await supabaseAdmin
     .from("payments")
-    .select("id, amount, type, status, wayforpay_id, created_at")
+    .select("id, amount, deposit, type, status, wayforpay_id, created_at")
     .eq("courier_id", courierId)
     .eq("status", "success")
     .order("created_at", { ascending: false });

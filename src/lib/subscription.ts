@@ -1,3 +1,5 @@
+import { supabaseAdmin } from "@/lib/supabase";
+
 // Спільна логіка продовження підписки. Використовується скрізь, де підписка
 // може подовжуватись: monopay webhook, готівкова оплата (адмінка й Telegram).
 //
@@ -13,4 +15,15 @@ export function nextExpiryFrom(currentExpiresAt: string | Date | null | undefine
   const next = new Date(base);
   next.setDate(next.getDate() + 7);
   return next;
+}
+
+// Перша оплата кур'єра (ще немає жодної підписки) — саме тоді додатково
+// стягується одноразовий завдаток за скутер (сума залежить від міста).
+// Використовується однаково для онлайн- і готівкової оплати.
+export async function isFirstPayment(courierId: string): Promise<boolean> {
+  const { count } = await supabaseAdmin
+    .from("subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("courier_id", courierId);
+  return !count;
 }

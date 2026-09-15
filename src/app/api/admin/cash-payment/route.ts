@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
-import { nextExpiryFrom } from "@/lib/subscription";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount } from "@/lib/pricing";
+import { nextExpiryFrom, isFirstPayment } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
@@ -31,12 +31,18 @@ export async function POST(req: NextRequest) {
      .single();
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-    const amount = totalWithPenalty(getWeeklyPrice(courier), late);
+    const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late);
+    // Завдаток за скутер стягується лише при першій оплаті кур'єра (як і в
+    // онлайн-оплаті), і теж залежить від міста.
+    const firstPayment = await isFirstPayment(courierId);
+    const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const amount = rentAmount + deposit;
     const now = new Date().toISOString();
 
     await supabaseAdmin.from("payments").insert({
       courier_id: courierId,
       amount,
+      deposit,
       type: "weekly_rent",
       status: "success",
       wayforpay_id: `cash_${Date.now()}`,
@@ -105,7 +111,9 @@ export async function POST(req: NextRequest) {
               parse_mode: "HTML",
               text:
                 `✅ <b>Оплату підтверджено!</b>\n\n` +
-                `Ваш готівковий платіж <b>${amount} грн</b> прийнято.\n\n` +
+                (deposit > 0
+                  ? `Ваш готівковий платіж прийнято: оренда ${rentAmount} грн + завдаток за скутер ${deposit} грн = <b>${amount} грн</b>.\n\n`
+                  : `Ваш готівковий платіж <b>${amount} грн</b> прийнято.\n\n`) +
                 `Підписка активна до <b>${nextDate}</b>.\n\n` +
                 `Дякуємо! 🛵`,
             }),

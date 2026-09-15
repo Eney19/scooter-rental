@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, getDepositAmount } from "@/lib/pricing";
+import { isFirstPayment } from "@/lib/subscription";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
@@ -23,7 +24,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Кур'єра не знайдено" }, { status: 404 });
     }
 
-    const amount = getWeeklyPrice(courier);
+    const rentAmount = getWeeklyPrice(courier);
+    // Лише для інформації адміну — скільки готівки очікувати, з завдатком за
+    // скутер, якщо це перша оплата курʼєра (сам завдаток по містах — @lib/pricing).
+    const firstPayment = await isFirstPayment(courierId);
+    const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const amount = rentAmount + deposit;
 
     if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
       return NextResponse.json({ success: false, error: "Бот не налаштований" }, { status: 500 });
@@ -38,7 +44,10 @@ export async function POST(req: NextRequest) {
         parse_mode: "HTML",
         text:
           "💵 <b>Кур'єр обрав оплату готівкою на місці</b>\n\n" +
-          `${courier.full_name}\n${courier.phone}\n${courier.city || ""} | ${amount} грн/тиж\n\n` +
+          `${courier.full_name}\n${courier.phone}\n${courier.city || ""}\n` +
+          (deposit > 0
+            ? `Оренда ${rentAmount} грн + завдаток за скутер ${deposit} грн = <b>${amount} грн</b>\n\n`
+            : `${amount} грн/тиж\n\n`) +
           "Підтвердіть кнопкою нижче, коли отримаєте готівку — підписка активується автоматично.",
         reply_markup: {
           inline_keyboard: [[{ text: "💵 Підтвердити готівкову оплату", callback_data: `cash_${courierId}` }]],

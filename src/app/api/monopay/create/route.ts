@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from("payments").insert({
       courier_id: courierId,
       amount: amountUAH,
+      deposit,
       type: "weekly_rent",
       status: "pending",
       wayforpay_id: reference, // використовуємо це поле для reference

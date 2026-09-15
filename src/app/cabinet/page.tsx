@@ -48,6 +48,7 @@ type RentalPeriod = {
 type PaymentRecord = {
   id: string;
   amount: number;
+  deposit: number | null;
   type: string;
   status: string;
   wayforpay_id: string | null;
@@ -552,17 +553,26 @@ export default function CabinetPage() {
           <div className="bg-white rounded-2xl shadow-lg p-6 space-y-3">
             <h2 className="font-bold text-slate-900">Історія платежів</h2>
             <div className="space-y-2">
-              {paymentHistory.map((p) => (
-                <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
-                  <div>
-                    <p className="font-medium text-slate-900">{fmtDate(p.created_at)}</p>
-                    <p className="text-slate-400 text-xs">
-                      {p.wayforpay_id && p.wayforpay_id.startsWith("cash_") ? "💵 Готівка" : "💳 Онлайн"}
-                    </p>
+              {paymentHistory.map((p) => {
+                const deposit = p.deposit || 0;
+                const rent = p.amount - deposit;
+                return (
+                  <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                    <div>
+                      <p className="font-medium text-slate-900">{fmtDate(p.created_at)}</p>
+                      <p className="text-slate-400 text-xs">
+                        {p.wayforpay_id && p.wayforpay_id.startsWith("cash_") ? "💵 Готівка" : "💳 Онлайн"}
+                      </p>
+                      {deposit > 0 && (
+                        <p className="text-slate-400 text-xs">
+                          {rent} грн оренда + {deposit} грн завдаток за скутер
+                        </p>
+                      )}
+                    </div>
+                    <p className="font-semibold text-slate-900">{p.amount} грн</p>
                   </div>
-                  <p className="font-semibold text-slate-900">{p.amount} грн</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

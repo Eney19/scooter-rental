@@ -70,8 +70,9 @@ export default function CabinetPage() {
   const [customPrice, setCustomPrice] = useState("");
   const [scooterModel, setScooterModel] = useState(SCOOTER_MODELS[0]);
   const [batteries, setBatteries] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<"online" | "cash" | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [cashReactivateRequested, setCashReactivateRequested] = useState(false);
 
   const [showPayAdvance, setShowPayAdvance] = useState(false);
   const [payAdvanceSubmitting, setPayAdvanceSubmitting] = useState<"online" | "cash" | null>(null);
@@ -119,27 +120,59 @@ export default function CabinetPage() {
     load();
   }, [router]);
 
-  async function submitReactivate() {
-    if (!courier) return;
+  async function reactivateSavePlan(): Promise<boolean> {
+    if (!courier) return false;
     const price = customPrice || priceOption;
-    setSubmitting(true);
+    const res = await fetch("/api/cabinet/reactivate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ city, weeklyPrice: price, scooterModel, batteryTypes: batteries }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      setFormError(data.error || "Помилка. Спробуйте ще раз");
+      return false;
+    }
+    return true;
+  }
+
+  async function reactivateOnline() {
+    if (!courier) return;
+    setSubmitting("online");
     setFormError(null);
     try {
-      const res = await fetch("/api/cabinet/reactivate", {
+      const ok = await reactivateSavePlan();
+      if (!ok) return;
+      router.push(`/payment/${courier.id}`);
+    } catch {
+      setFormError("Помилка з'єднання");
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function reactivateCash() {
+    if (!courier) return;
+    setSubmitting("cash");
+    setFormError(null);
+    try {
+      const ok = await reactivateSavePlan();
+      if (!ok) return;
+      const res = await fetch("/api/cash-payment-request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city, weeklyPrice: price, scooterModel, batteryTypes: batteries }),
+        body: JSON.stringify({ courierId: courier.id }),
       });
       const data = await res.json();
       if (!data.success) {
         setFormError(data.error || "Помилка. Спробуйте ще раз");
         return;
       }
-      router.push(`/payment/${courier.id}`);
+      setCashReactivateRequested(true);
     } catch {
       setFormError("Помилка з'єднання");
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
@@ -391,7 +424,13 @@ export default function CabinetPage() {
             </p>
           )}
 
-          {!isActive && !hasDebt && !showReactivate && (
+          {!isActive && !hasDebt && cashReactivateRequested && (
+            <p className="bg-yellow-50 text-yellow-700 px-4 py-3 rounded-xl text-sm">
+              ⏳ Адміністратора сповіщено. Щойно він підтвердить отримання готівки — оренда активується.
+            </p>
+          )}
+
+          {!isActive && !hasDebt && !cashReactivateRequested && !showReactivate && (
             <button
               onClick={() => setShowReactivate(true)}
               className="w-full mt-2 bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700"
@@ -400,7 +439,7 @@ export default function CabinetPage() {
             </button>
           )}
 
-          {!isActive && !hasDebt && showReactivate && (
+          {!isActive && !hasDebt && !cashReactivateRequested && showReactivate && (
             <div className="border-t border-slate-100 pt-4 space-y-3">
               <div>
                 <label className={lbl}>Місто *</label>
@@ -413,19 +452,28 @@ export default function CabinetPage() {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowReactivate(false)}
-                  className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-3 font-medium hover:bg-slate-50"
+                  onClick={reactivateOnline}
+                  disabled={submitting !== null}
+                  className="flex-1 bg-green-600 text-white rounded-xl py-3 font-semibold hover:bg-green-700 disabled:opacity-60"
                 >
-                  Скасувати
+                  {submitting === "online" ? "Обробка..." : "💳 Онлайн"}
                 </button>
                 <button
-                  onClick={submitReactivate}
-                  disabled={submitting}
-                  className="flex-grow bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700 disabled:opacity-60"
+                  type="button"
+                  onClick={reactivateCash}
+                  disabled={submitting !== null}
+                  className="flex-1 border-2 border-slate-200 text-slate-700 rounded-xl py-3 font-semibold hover:bg-slate-50 disabled:opacity-60"
                 >
-                  {submitting ? "Обробка..." : "Перейти до оплати →"}
+                  {submitting === "cash" ? "Обробка..." : "💵 Готівкою"}
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => { setShowReactivate(false); setFormError(null); }}
+                className="w-full text-sm text-slate-400 hover:text-slate-600"
+              >
+                Скасувати
+              </button>
             </div>
           )}
         </div>

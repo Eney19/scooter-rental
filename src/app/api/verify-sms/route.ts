@@ -30,11 +30,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Невірний або застарілий код" });
     }
 
-    // Помічаємо код як використаний
-    await supabaseAdmin
-      .from("signing_logs")
-      .update({ used: true, courier_id: courierId })
-      .eq("id", data.id);
+    // Код НЕ позначаємо використаним тут. Раніше він "спалювався" одразу при
+    // перевірці, а сам договір (sign-contract) підписувався окремим наступним
+    // запитом — якщо той запит падав з будь-якої причини (шаблон, PDF, Storage,
+    // тимчасова помилка бази), код лишався формально використаним, і кур'єр
+    // більше не міг ним скористатись навіть повторно ввівши той самий правильний
+    // код. Тепер used=true ставить сам /api/sign-contract, і лише після того,
+    // як договір реально успішно підписано й прив'язано до кур'єра.
+    void courierId;
 
     return NextResponse.json({ success: true });
   } catch (error) {

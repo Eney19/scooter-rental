@@ -269,6 +269,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Договір підписано й збережено, але не вдалося оновити решту даних кур'єра. Зверніться до адміністратора.", pdfUrl }, { status: 500 });
     }
 
+    // Договір реально підписано й прив'язано до кур'єра — лише тепер ставимо
+    // SMS-код використаним (не одразу в /api/verify-sms, щоб падіння цього
+    // запиту вище — шаблон, PDF, Storage, апдейт картки — не "спалювало"
+    // правильний код без фактичного підписання договору).
+    try {
+      const normalizedPhone = courierPhone.startsWith("+") ? courierPhone : "+" + courierPhone;
+      const { error: smsMarkError } = await supabaseAdmin
+        .from("signing_logs")
+        .update({ used: true, courier_id: courierId })
+        .eq("phone", normalizedPhone)
+        .eq("used", false);
+      if (smsMarkError) {
+        console.error("sign-contract: marking sms code as used failed", smsMarkError);
+      }
+    } catch (smsMarkErr) {
+      console.error("sign-contract: marking sms code as used failed", smsMarkErr);
+    }
+
     if (courierEmail) {
       try {
         await resend.emails.send({

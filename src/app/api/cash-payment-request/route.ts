@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, getDepositAmount } from "@/lib/pricing";
+import { getWeeklyPrice, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { isFirstPayment } from "@/lib/subscription";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier, error } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price")
+      .select("full_name, phone, city, weekly_price, battery_types")
       .eq("id", courierId)
       .single();
 
@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
     // скутер, якщо це перша оплата курʼєра (сам завдаток по містах — @lib/pricing).
     const firstPayment = await isFirstPayment(courierId);
     const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
+    const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;
 
     if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
@@ -45,8 +47,12 @@ export async function POST(req: NextRequest) {
         text:
           "💵 <b>Кур'єр обрав оплату готівкою на місці</b>\n\n" +
           `${courier.full_name}\n${courier.phone}\n${courier.city || ""}\n` +
-          (deposit > 0
-            ? `Оренда ${rentAmount} грн + завдаток за скутер ${deposit} грн = <b>${amount} грн</b>\n\n`
+          (batteryAmount > 0 || deposit > 0
+            ? [
+                `оренда скутера ${scooterAmount} грн`,
+                ...(batteryAmount > 0 ? [`оренда акумулятора ${batteryAmount} грн`] : []),
+                ...(deposit > 0 ? [`завдаток за скутер ${deposit} грн`] : []),
+              ].join(" + ") + ` = <b>${amount} грн</b>\n\n`
             : `${amount} грн/тиж\n\n`) +
           "Підтвердіть кнопкою нижче, коли отримаєте готівку — підписка активується автоматично.",
         reply_markup: {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, isFirstPayment } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 
@@ -93,14 +93,22 @@ export async function POST(req: NextRequest) {
         // Завдаток за скутер — лише при першій оплаті кур'єра, залежить від міста.
         const firstPayment = await isFirstPayment(courierId);
         const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+        const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
+        const scooterAmount = rentAmount - batteryAmount;
         const amount = rentAmount + deposit;
         const now = new Date().toISOString();
+
+        const paymentParts: string[] = [`оренда скутера ${scooterAmount} грн`];
+        if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
+        if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
+        const paymentBreakdown = paymentParts.length > 1 ? paymentParts.join(" + ") : null;
 
         // Записуємо готівковий платіж
         await supabaseAdmin.from("payments").insert({
           courier_id: courierId,
           amount,
           deposit,
+          battery_amount: batteryAmount,
           type: "weekly_rent",
           status: "success",
           wayforpay_id: `cash_${Date.now()}`,
@@ -167,8 +175,8 @@ export async function POST(req: NextRequest) {
           `Курʼєр: <b>${courier.full_name}</b>\n` +
           `Телефон: ${courier.phone}\n` +
           `Місто: ${courier.city || "—"}\n` +
-          (deposit > 0
-            ? `Оренда: ${rentAmount} грн + завдаток за скутер: ${deposit} грн\n` +
+          (paymentBreakdown
+            ? `${paymentBreakdown}\n` +
               `Сума: <b>${amount} грн</b>\n`
             : `Сума: <b>${amount} грн</b>\n`) +
           `Дата оплати: ${paidDate}\n` +
@@ -186,8 +194,8 @@ export async function POST(req: NextRequest) {
           await sendMessage(
             courierFull.telegram_chat_id,
             `✅ <b>Оплату підтверджено!</b>\n\n` +
-            (deposit > 0
-              ? `Оренда ${rentAmount} грн + завдаток за скутер ${deposit} грн — зараховано <b>${amount} грн</b>.\n`
+            (paymentBreakdown
+              ? `${paymentBreakdown} — зараховано <b>${amount} грн</b>.\n`
               : `Ваш готівковий платіж <b>${amount} грн</b> зараховано.\n`) +
             `Підписка активна до <b>${nextDate}</b>.\n\n` +
             `Дякуємо! 🛵`

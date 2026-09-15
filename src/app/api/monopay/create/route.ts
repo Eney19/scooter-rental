@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
       courier_id: courierId,
       amount: amountUAH,
       deposit,
+      battery_amount: batteryWeeklyPrice,
       type: "weekly_rent",
       status: "pending",
       wayforpay_id: reference, // використовуємо це поле для reference

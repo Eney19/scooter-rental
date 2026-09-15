@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, isFirstPayment } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 
@@ -36,13 +36,21 @@ export async function POST(req: NextRequest) {
     // онлайн-оплаті), і теж залежить від міста.
     const firstPayment = await isFirstPayment(courierId);
     const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
+    const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;
     const now = new Date().toISOString();
+
+    const paymentParts: string[] = [`оренда скутера ${scooterAmount} грн`];
+    if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
+    if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
+    const paymentBreakdown = paymentParts.length > 1 ? paymentParts.join(" + ") : null;
 
     await supabaseAdmin.from("payments").insert({
       courier_id: courierId,
       amount,
       deposit,
+      battery_amount: batteryAmount,
       type: "weekly_rent",
       status: "success",
       wayforpay_id: `cash_${Date.now()}`,
@@ -111,8 +119,8 @@ export async function POST(req: NextRequest) {
               parse_mode: "HTML",
               text:
                 `✅ <b>Оплату підтверджено!</b>\n\n` +
-                (deposit > 0
-                  ? `Ваш готівковий платіж прийнято: оренда ${rentAmount} грн + завдаток за скутер ${deposit} грн = <b>${amount} грн</b>.\n\n`
+                (paymentBreakdown
+                  ? `Ваш готівковий платіж прийнято: ${paymentBreakdown} = <b>${amount} грн</b>.\n\n`
                   : `Ваш готівковий платіж <b>${amount} грн</b> прийнято.\n\n`) +
                 `Підписка активна до <b>${nextDate}</b>.\n\n` +
                 `Дякуємо! 🛵`,

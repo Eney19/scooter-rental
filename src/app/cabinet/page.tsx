@@ -49,6 +49,7 @@ type PaymentRecord = {
   id: string;
   amount: number;
   deposit: number | null;
+  battery_amount: number | null;
   type: string;
   status: string;
   wayforpay_id: string | null;
@@ -555,7 +556,9 @@ export default function CabinetPage() {
             <div className="space-y-2">
               {paymentHistory.map((p) => {
                 const deposit = p.deposit || 0;
-                const rent = p.amount - deposit;
+                const batteryAmount = p.battery_amount || 0;
+                const scooterAmount = p.amount - deposit - batteryAmount;
+                const hasBreakdown = deposit > 0 || batteryAmount > 0;
                 return (
                   <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
                     <div>
@@ -563,9 +566,11 @@ export default function CabinetPage() {
                       <p className="text-slate-400 text-xs">
                         {p.wayforpay_id && p.wayforpay_id.startsWith("cash_") ? "💵 Готівка" : "💳 Онлайн"}
                       </p>
-                      {deposit > 0 && (
+                      {hasBreakdown && (
                         <p className="text-slate-400 text-xs">
-                          {rent} грн оренда + {deposit} грн завдаток за скутер
+                          {scooterAmount} грн оренда скутера
+                          {batteryAmount > 0 && ` + ${batteryAmount} грн оренда акумулятора`}
+                          {deposit > 0 && ` + ${deposit} грн завдаток за скутер`}
                         </p>
                       )}
                     </div>

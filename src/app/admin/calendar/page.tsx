@@ -98,9 +98,12 @@ export default function AdminCalendarPage() {
     return days;
   }, [monthStart, monthEnd]);
 
-  // Для кожного кур'єра беремо його останню (найновішу) підписку
+  // Для кожного кур'єра беремо його останню (найновішу) АКТИВНУ підписку —
+  // скасовані ігноруємо, інакше стара cancelled-підписка з пізнішою датою
+  // могла "перекрити" справжню активну (курʼєр або зникав з календаря,
+  // або показувалась не та дата).
   function latestSub(c: Courier): Sub | null {
-    const subs = c.subscriptions || [];
+    const subs = (c.subscriptions || []).filter((s) => s.status === "active");
     if (subs.length === 0) return null;
     return subs.sort((a, b) => new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime())[0];
   }

@@ -45,6 +45,15 @@ type RentalPeriod = {
   ended_at: string | null;
 };
 
+type PaymentRecord = {
+  id: string;
+  amount: number;
+  type: string;
+  status: string;
+  wayforpay_id: string | null;
+  created_at: string;
+};
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active: { label: "Активний", color: "bg-green-100 text-green-700" },
   pending: { label: "Очікує", color: "bg-yellow-100 text-yellow-700" },
@@ -63,6 +72,7 @@ export default function CabinetPage() {
   const [courier, setCourier] = useState<Courier | null>(null);
   const [subscription, setSubscription] = useState<Subscription>(null);
   const [rentalHistory, setRentalHistory] = useState<RentalPeriod[]>([]);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>([]);
 
   const [showReactivate, setShowReactivate] = useState(false);
   const [city, setCity] = useState("Луцьк");
@@ -97,6 +107,10 @@ export default function CabinetPage() {
         fetch("/api/cabinet/rental-history")
           .then((r) => r.json())
           .then((hd) => { if (hd.success) setRentalHistory(hd.periods); })
+          .catch(() => {});
+        fetch("/api/cabinet/payments")
+          .then((r) => r.json())
+          .then((pd) => { if (pd.success) setPaymentHistory(pd.payments); })
           .catch(() => {});
         if (data.courier.city) setCity(data.courier.city);
         if (data.courier.scooter_model && SCOOTER_MODELS.includes(data.courier.scooter_model)) {
@@ -503,6 +517,25 @@ export default function CabinetPage() {
                   )}
                   <p>Тариф: <span className="font-medium text-slate-900">{p.weekly_price ? `${p.weekly_price} грн/тиж` : "—"}</span></p>
                   <p>Договір підписано: <span className="font-medium text-slate-900">{fmtDate(p.contract_signed_at)}</span></p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {paymentHistory.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 space-y-3">
+            <h2 className="font-bold text-slate-900">Історія платежів</h2>
+            <div className="space-y-2">
+              {paymentHistory.map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                  <div>
+                    <p className="font-medium text-slate-900">{fmtDate(p.created_at)}</p>
+                    <p className="text-slate-400 text-xs">
+                      {p.wayforpay_id && p.wayforpay_id.startsWith("cash_") ? "💵 Готівка" : "💳 Онлайн"}
+                    </p>
+                  </div>
+                  <p className="font-semibold text-slate-900">{p.amount} грн</p>
                 </div>
               ))}
             </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicKey, createVerify } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { nextExpiryFrom } from "@/lib/subscription";
+import { openRentalPeriod } from "@/lib/rental-history";
 
 let cachedPubKey: string | null = null;
 
@@ -108,10 +109,22 @@ export async function POST(req: NextRequest) {
         .from("couriers")
         .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
         .eq("id", courierId)
-        .select("full_name, phone, city")
+        .select("full_name, phone, city, scooter_model, battery_types, weekly_price, contract_signed_at")
         .single();
 
       console.log(`Payment success: courier=${courierId}, amount=${amountUAH} UAH`);
+
+      // Якщо це не оплата наперед в межах активної підписки, а фактичне взяття
+      // скутера (нової підписки не було) — відкриваємо новий період оренди.
+      if (!existingSub && courierRow) {
+        await openRentalPeriod(courierId, {
+          city: courierRow.city ?? null,
+          scooterModel: courierRow.scooter_model ?? null,
+          batteryTypes: courierRow.battery_types ?? null,
+          weeklyPrice: courierRow.weekly_price ?? null,
+          contractSignedAt: courierRow.contract_signed_at ?? null,
+        });
+      }
 
       // Сповіщення адміну про онлайн-оплату
       try {

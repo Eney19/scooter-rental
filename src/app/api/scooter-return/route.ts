@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument } from "pdf-lib";
+import { closeRentalPeriod } from "@/lib/rental-history";
 
 function topY(top: number, pageHeight: number) {
   return pageHeight - top;
@@ -100,6 +101,8 @@ export async function POST(req: NextRequest) {
       .update({ status: "cancelled" })
       .eq("courier_id", courierId)
       .eq("status", "active");
+
+    await closeRentalPeriod(courierId);
 
     return NextResponse.json({ success: true, pdfUrl: returnPdfUrl });
   } catch (error) {

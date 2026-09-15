@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { closeRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
       .update({ status: "cancelled" })
       .eq("courier_id", courierId)
       .eq("status", "active");
+
+    await closeRentalPeriod(courierId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

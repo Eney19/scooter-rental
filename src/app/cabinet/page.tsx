@@ -34,6 +34,17 @@ type Subscription = {
   paid_at: string | null;
 } | null;
 
+type RentalPeriod = {
+  id: string;
+  city: string | null;
+  scooter_model: string | null;
+  battery_types: string[] | null;
+  weekly_price: number | null;
+  contract_signed_at: string | null;
+  started_at: string;
+  ended_at: string | null;
+};
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active: { label: "Активний", color: "bg-green-100 text-green-700" },
   pending: { label: "Очікує", color: "bg-yellow-100 text-yellow-700" },
@@ -51,6 +62,7 @@ export default function CabinetPage() {
   const [loading, setLoading] = useState(true);
   const [courier, setCourier] = useState<Courier | null>(null);
   const [subscription, setSubscription] = useState<Subscription>(null);
+  const [rentalHistory, setRentalHistory] = useState<RentalPeriod[]>([]);
 
   const [showReactivate, setShowReactivate] = useState(false);
   const [city, setCity] = useState("Луцьк");
@@ -81,6 +93,10 @@ export default function CabinetPage() {
       if (data.success) {
         setCourier(data.courier);
         setSubscription(data.subscription);
+        fetch("/api/cabinet/rental-history")
+          .then((r) => r.json())
+          .then((hd) => { if (hd.success) setRentalHistory(hd.periods); })
+          .catch(() => {});
         if (data.courier.city) setCity(data.courier.city);
         if (data.courier.scooter_model && SCOOTER_MODELS.includes(data.courier.scooter_model)) {
           setScooterModel(data.courier.scooter_model);
@@ -413,6 +429,37 @@ export default function CabinetPage() {
             </div>
           )}
         </div>
+
+        {rentalHistory.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 space-y-3">
+            <h2 className="font-bold text-slate-900">Історія оренди</h2>
+            <div className="space-y-3">
+              {rentalHistory.map((p) => (
+                <div key={p.id} className="border border-slate-100 rounded-xl p-4 text-sm text-slate-600 space-y-1">
+                  <p className="flex items-center justify-between">
+                    <span className="font-medium text-slate-900">
+                      {fmtDate(p.started_at)} — {p.ended_at ? fmtDate(p.ended_at) : "дотепер"}
+                    </span>
+                    {!p.ended_at && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                        активний
+                      </span>
+                    )}
+                  </p>
+                  <p>Місто: <span className="font-medium text-slate-900">{p.city || "—"}</span></p>
+                  <p>Модель: <span className="font-medium text-slate-900">{p.scooter_model || "—"}</span></p>
+                  {p.battery_types && p.battery_types.length > 0 && (
+                    <p>Акумулятор: <span className="font-medium text-slate-900">
+                      {p.battery_types.map((id) => BATTERY_OPTIONS.find((b) => b.id === id)?.label || id).join(", ")}
+                    </span></p>
+                  )}
+                  <p>Тариф: <span className="font-medium text-slate-900">{p.weekly_price ? `${p.weekly_price} грн/тиж` : "—"}</span></p>
+                  <p>Договір підписано: <span className="font-medium text-slate-900">{fmtDate(p.contract_signed_at)}</span></p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

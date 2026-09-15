@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty } from "@/lib/pricing";
 import { nextExpiryFrom } from "@/lib/subscription";
+import { openRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price")
+      .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at")
       .eq("id", courierId)
       .single();
 
@@ -72,6 +73,18 @@ export async function POST(req: NextRequest) {
       .from("couriers")
       .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
       .eq("id", courierId);
+
+    // Так само як в monopay-вебхуку: новий період оренди відкриваємо лише
+    // якщо це фактичне взяття скутера, а не оплата наперед активної підписки.
+    if (!existingSub) {
+      await openRentalPeriod(courierId, {
+        city: courier.city ?? null,
+        scooterModel: courier.scooter_model ?? null,
+        batteryTypes: courier.battery_types ?? null,
+        weeklyPrice: courier.weekly_price ?? null,
+        contractSignedAt: courier.contract_signed_at ?? null,
+      });
+    }
 
     const { data: courierFull } = await supabaseAdmin
       .from("couriers")

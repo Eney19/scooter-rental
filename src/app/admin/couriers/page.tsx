@@ -31,6 +31,7 @@ type Courier = {
   battery_types: string[] | null;
   last_cabinet_login_at: string | null;
   telegram_chat_id: number | null;
+  telegram_connected_at: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -517,11 +518,33 @@ export default function AdminCouriersPage() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-3 gap-3 mb-3">
             {[
               { label: "Всього", value: couriers.length, color: "text-slate-900" },
               { label: "Активних", value: couriers.filter(c => c.status === "active").length, color: "text-green-600" },
               { label: "Очікують", value: couriers.filter(c => !c.status || c.status === "pending").length, color: "text-yellow-600" },
+            ].map(s => (
+              <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+                <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+                <div className="text-xs text-slate-500 mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Telegram stats — щоб бачити, чи спрацювала розсилка-нагадування */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {[
+              { label: "Підключено до Telegram", value: couriers.filter(c => c.telegram_chat_id).length, color: "text-sky-600" },
+              {
+                label: "Підключились сьогодні",
+                value: couriers.filter(c => c.telegram_connected_at && new Date(c.telegram_connected_at).toDateString() === new Date().toDateString()).length,
+                color: "text-emerald-600",
+              },
+              {
+                label: "Підключились за 7 днів",
+                value: couriers.filter(c => c.telegram_connected_at && (Date.now() - new Date(c.telegram_connected_at).getTime()) <= 7 * 24 * 60 * 60 * 1000).length,
+                color: "text-emerald-600",
+              },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4 text-center">
                 <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>

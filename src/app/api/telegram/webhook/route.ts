@@ -234,14 +234,17 @@ export async function POST(req: NextRequest) {
       if (isUuid) {
         const { data: courierByLink } = await supabaseAdmin
           .from("couriers")
-          .select("id, full_name")
+          .select("id, full_name, telegram_connected_at")
           .eq("id", startPayload)
           .maybeSingle();
 
         if (courierByLink) {
           await supabaseAdmin
             .from("couriers")
-            .update({ telegram_chat_id: chatId })
+            .update({
+              telegram_chat_id: chatId,
+              ...(courierByLink.telegram_connected_at ? {} : { telegram_connected_at: new Date().toISOString() }),
+            })
             .eq("id", courierByLink.id);
 
           await sendMessage(chatId,
@@ -279,7 +282,7 @@ export async function POST(req: NextRequest) {
 
       const { data: courier } = await supabaseAdmin
         .from("couriers")
-        .select("id, full_name, status")
+        .select("id, full_name, status, telegram_connected_at")
         .eq("phone", normalizedPhone)
         .single();
 
@@ -293,7 +296,10 @@ export async function POST(req: NextRequest) {
 
       await supabaseAdmin
         .from("couriers")
-        .update({ telegram_chat_id: chatId })
+        .update({
+          telegram_chat_id: chatId,
+          ...(courier.telegram_connected_at ? {} : { telegram_connected_at: new Date().toISOString() }),
+        })
         .eq("id", courier.id);
 
       await sendMessage(chatId,

@@ -177,6 +177,18 @@ export default function AdminCouriersPage() {
     });
   }
 
+  async function updateReturnSignedAt(id: string, date: string) {
+    const value = date ? new Date(date).toISOString() : null;
+    const { error } = await supabase.from("couriers").update({ return_signed_at: value }).eq("id", id);
+    if (error) {
+      console.error("updateReturnSignedAt failed", error);
+      alert(`Не вдалося зберегти дату здачі скутера: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === id ? { ...c, return_signed_at: value } : c));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, return_signed_at: value } : null);
+  }
+
   async function updateDebtSince(id: string, date: string) {
     const value = date || null;
     await supabase.from("couriers").update({ debt_since: value, debt_auto: false }).eq("id", id);
@@ -455,9 +467,11 @@ export default function AdminCouriersPage() {
                             {c.registration_attempts && c.registration_attempts > 1 ? ` · спроба ${c.registration_attempts}` : ""}
                           </div>
                         )}
-                        {c.status === "inactive" && c.return_signed_at ? (
+                        {c.status === "inactive" ? (
                           <div className="text-slate-400 text-[11px] mt-1">
-                            Скутер здано {new Date(c.return_signed_at).toLocaleDateString("uk-UA")}
+                            {c.return_signed_at
+                              ? `Скутер здано ${new Date(c.return_signed_at).toLocaleDateString("uk-UA")}`
+                              : "Скутер здано (дата не вказана)"}
                           </div>
                         ) : subsByCourier[c.id] && (() => {
                           const sub = subsByCourier[c.id];
@@ -651,10 +665,16 @@ export default function AdminCouriersPage() {
 
               <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Підписка</p>
-                {selected.status === "inactive" && selected.return_signed_at ? (
-                  <p className="text-slate-500 text-sm">
-                    ✅ Скутер здано {new Date(selected.return_signed_at).toLocaleDateString("uk-UA")}
-                  </p>
+                {selected.status === "inactive" ? (
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-24 shrink-0 text-xs">Скутер здано</span>
+                    <input
+                      type="date"
+                      value={selected.return_signed_at ? selected.return_signed_at.slice(0, 10) : ""}
+                      onChange={e => updateReturnSignedAt(selected.id, e.target.value)}
+                      className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
                 ) : subsByCourier[selected.id] ? (() => {
                   const sub = subsByCourier[selected.id];
                   const weeks = weeksAheadPaid(sub.expires_at);

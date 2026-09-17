@@ -30,6 +30,7 @@ type Courier = {
   registration_attempts: number | null;
   battery_types: string[] | null;
   last_cabinet_login_at: string | null;
+  telegram_chat_id: number | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -704,6 +705,14 @@ export default function AdminCouriersPage() {
                     onBlur={e => saveField(selected.id, "contract_pdf_url", e.target.value)}
                     className={fieldInputClass + " truncate"}
                   />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-20 shrink-0">Telegram</span>
+                  {selected.telegram_chat_id ? (
+                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">✅ Підключено</span>
+                  ) : (
+                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">— Не підключено</span>
+                  )}
                 </div>
               </div>
 

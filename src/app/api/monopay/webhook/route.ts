@@ -162,6 +162,50 @@ export async function POST(req: NextRequest) {
       console.log(`Payment processing: invoiceId=${invoiceId}`);
     } else if (status === "failure") {
       console.log(`Payment failed: invoiceId=${invoiceId}, reason=${failureReason}`);
+
+      const failParts = (reference || "").split("_");
+      const failedCourierId = failParts[1];
+
+      if (failedCourierId) {
+        await supabaseAdmin
+          .from("payments")
+          .update({ status: "failed", wayforpay_id: invoiceId })
+          .eq("courier_id", failedCourierId)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const { data: failedCourier } = await supabaseAdmin
+          .from("couriers")
+          .select("full_name")
+          .eq("id", failedCourierId)
+          .single();
+
+        try {
+          const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+          const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
+          if (BOT_TOKEN && ADMIN_CHAT_ID) {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString("uk-UA");
+            const timeStr = now.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: ADMIN_CHAT_ID,
+                parse_mode: "HTML",
+                text:
+                  "❌ <b>Оплату відхилено</b>\n\n" +
+                  (failedCourier?.full_name || failedCourierId) + "\n" +
+                  `${dateStr} о ${timeStr}` +
+                  (failureReason ? `\nПричина: ${failureReason}` : ""),
+              }),
+            });
+          }
+        } catch (tgErr) {
+          console.error("Admin telegram notify (failure) error:", tgErr);
+        }
+      }
     } else if (status === "reversed") {
       await supabaseAdmin
         .from("payments")

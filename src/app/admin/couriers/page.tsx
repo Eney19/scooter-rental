@@ -46,7 +46,7 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
 };
 
 type SubInfo = { id: string; expires_at: string; paid_at: string | null; amount: number };
-type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; created_at: string };
+type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; status: string | null; created_at: string };
 
 function weeksWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -129,9 +129,9 @@ export default function AdminCouriersPage() {
     setCourierPaymentsLoading(true);
     const { data } = await supabase
       .from("payments")
-      .select("id, amount, deposit, battery_amount, wayforpay_id, created_at")
+      .select("id, amount, deposit, battery_amount, wayforpay_id, status, created_at")
       .eq("courier_id", courierId)
-      .eq("status", "success")
+      .in("status", ["success", "failed"])
       .order("created_at", { ascending: false });
     setCourierPayments(data || []);
     setCourierPaymentsLoading(false);
@@ -721,18 +721,20 @@ export default function AdminCouriersPage() {
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {courierPayments.map((p) => {
+                      const isFailed = p.status === "failed";
                       const deposit = p.deposit || 0;
                       const batteryAmount = p.battery_amount || 0;
                       const scooterAmount = p.amount - deposit - batteryAmount;
                       const hasBreakdown = deposit > 0 || batteryAmount > 0;
                       return (
-                        <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                        <div key={p.id} className={`flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 ${isFailed ? "opacity-70" : ""}`}>
                           <div>
                             <p className="font-medium text-slate-900">{new Date(p.created_at).toLocaleDateString("uk-UA")}</p>
                             <p className="text-slate-400 text-xs">
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
+                              {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
-                            {hasBreakdown && (
+                            {!isFailed && hasBreakdown && (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 <p className="flex justify-between gap-3">
                                   <span>Скутер</span><span>{scooterAmount} грн</span>
@@ -750,7 +752,7 @@ export default function AdminCouriersPage() {
                               </div>
                             )}
                           </div>
-                          <p className="font-semibold text-slate-900">{p.amount} грн</p>
+                          <p className={`font-semibold ${isFailed ? "text-red-500 line-through" : "text-slate-900"}`}>{p.amount} грн</p>
                         </div>
                       );
                     })}

@@ -362,7 +362,12 @@ export default function CabinetPage() {
           </button>
         </div>
 
-        {!courier.telegram_chat_id && (
+        {courier.telegram_chat_id ? (
+          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm px-4 py-3">
+            <span className="text-lg">✅</span>
+            <p className="text-emerald-800 text-sm font-medium">Telegram-бот PowerDrive підключено</p>
+          </div>
+        ) : (
           <a
             href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
             target="_blank"

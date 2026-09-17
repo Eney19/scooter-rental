@@ -4,12 +4,24 @@ import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, daysSinceDebt, D
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
 
-async function sendMessage(chatId: number | string, text: string) {
+// Кнопка одразу під повідомленням про борг. Веде на ту саму сторінку
+// оплати, що й /pay — але сума на ній має точно збігатися з тим, що
+// написано в тексті: /api/monopay/create бере суму з couriers.debt_amount
+// (те саме число, яке ми щойно записали нижче), а не рахує її наново.
+async function sendMessageWithPayButton(chatId: number | string, text: string, buttonText: string, courierId: string) {
   await fetch(`${API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [[{ text: buttonText, url: `${APP_URL}/payment/${courierId}` }]],
+      },
+    }),
   });
 }
 
@@ -82,14 +94,16 @@ export async function GET(req: NextRequest) {
       if (courier.telegram_chat_id) {
         const overdueDays = daysSinceDebt(debtSince);
         const dayWord = overdueDays === 1 ? "день" : overdueDays >= 2 && overdueDays <= 4 ? "дні" : "днів";
-        await sendMessage(
+        await sendMessageWithPayButton(
           courier.telegram_chat_id,
           `🔴 <b>Заборгованість</b>\n\n` +
           `Підписку прострочено, і скутер не повернуто. Ваш статус змінено на "Боржник".\n\n` +
           `Оренда за наступні 7 днів: <b>${baseAmount} грн</b>\n` +
           `Пеня (${overdueDays} ${dayWord} × ${DEBT_PENALTY_PER_DAY} грн): <b>${penalty} грн</b>\n` +
           `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
-          `Пеня нараховується щодня, доки борг не погашено. Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер, щоб зупинити нарахування.`
+          `Пеня нараховується щодня, доки борг не погашено. Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер, щоб зупинити нарахування.`,
+          `💳 Оплатити ${debtAmount} грн`,
+          courier.id
         );
       }
     }

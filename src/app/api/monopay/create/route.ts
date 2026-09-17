@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, battery_types")
+    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount")
     .eq("id", courierId)
     .single();
 
@@ -34,7 +34,14 @@ export async function POST(req: NextRequest) {
     .single();
 
   const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-  const rentAmount = totalWithPenalty(baseAmount, late);
+  // Якщо кур'єр уже офіційно "Боржник" — беремо суму, яку йому вже показали
+  // (в адмінці й у Telegram-повідомленні про борг), а не рахуємо наново
+  // через daysOverdue: так кнопка "Оплатити" завжди відповідає тому, що
+  // курʼєр бачив у повідомленні, навіть якщо ці два розрахунки трохи
+  // розходяться в підрахунку днів.
+  const rentAmount = (courier.status === "debtor" && typeof courier.debt_amount === "number")
+    ? courier.debt_amount
+    : totalWithPenalty(baseAmount, late);
 
   // Завдаток стягується лише при першій оплаті кур'єра (ще немає жодної підписки)
   const { count: subsCount } = await supabaseAdmin

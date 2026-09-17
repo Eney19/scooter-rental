@@ -316,7 +316,7 @@ export async function POST(req: NextRequest) {
     if (text.startsWith("/pay")) {
       const { data: courier } = await supabaseAdmin
         .from("couriers")
-        .select("id, full_name, city, weekly_price")
+        .select("id, full_name, city, weekly_price, status, debt_amount")
         .eq("telegram_chat_id", chatId)
         .single();
 
@@ -335,7 +335,12 @@ export async function POST(req: NextRequest) {
         .single();
 
       const lateForPay = overdueSubForPay ? daysOverdue(overdueSubForPay.expires_at) : 0;
-      const weeklyPrice = totalWithPenalty(getWeeklyPrice(courier), lateForPay);
+      // Той самий принцип, що й у /api/monopay/create: якщо курʼєр вже
+      // офіційно "Боржник", показуємо ту саму суму, що й у повідомленні
+      // про борг (couriers.debt_amount), а не рахуємо наново.
+      const weeklyPrice = (courier.status === "debtor" && typeof courier.debt_amount === "number")
+        ? courier.debt_amount
+        : totalWithPenalty(getWeeklyPrice(courier), lateForPay);
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
 
       await sendMessageWithButton(

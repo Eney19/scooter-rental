@@ -63,13 +63,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      await supabaseAdmin
+      // Прив'язуємось до КОНКРЕТНОГО інвойсу (reference), а не просто
+      // "останній pending платіж цього кур'єра" — інакше повторний webhook
+      // від Monobank (він може прийти кілька разів для однієї й тієї самої
+      // оплати) або паралельно створений другий інвойс міг позначити
+      // success не той рядок і подовжити підписку вдруге за одну реальну
+      // оплату. Якщо збігу немає (вже оброблено раніше або рядка не існує) —
+      // це повторна доставка того самого webhook, виходимо без побічних дій.
+      const { data: updatedPayment } = await supabaseAdmin
         .from("payments")
         .update({ status: "success", wayforpay_id: invoiceId })
-        .eq("courier_id", courierId)
+        .eq("wayforpay_id", reference)
         .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .select("id")
+        .maybeSingle();
+
+      if (!updatedPayment) {
+        console.log(`Monobank webhook: reference=${reference} already processed or not found — skipping duplicate.`);
+        return NextResponse.json({ ok: true });
+      }
 
       const { data: existingSub } = await supabaseAdmin
         .from("subscriptions")
@@ -167,13 +179,17 @@ export async function POST(req: NextRequest) {
       const failedCourierId = failParts[1];
 
       if (failedCourierId) {
-        await supabaseAdmin
+        const { data: updatedFailedPayment } = await supabaseAdmin
           .from("payments")
           .update({ status: "failed", wayforpay_id: invoiceId })
-          .eq("courier_id", failedCourierId)
+          .eq("wayforpay_id", reference)
           .eq("status", "pending")
-          .order("created_at", { ascending: false })
-          .limit(1);
+          .select("id")
+          .maybeSingle();
+
+        if (!updatedFailedPayment) {
+          return NextResponse.json({ ok: true });
+        }
 
         const { data: failedCourier } = await supabaseAdmin
           .from("couriers")

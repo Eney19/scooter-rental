@@ -46,6 +46,7 @@ export default function AdminPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [revenueMonth, setRevenueMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -67,6 +68,20 @@ export default function AdminPaymentsPage() {
   }
 
   const totalRevenue = payments.filter(p => p.status === "success").reduce((sum, p) => sum + p.amount, 0);
+
+  // Дохід за обраний місяць, розбитий по містах — щоб бачити динаміку по
+  // кожному місту окремо, а не тільки загальну суму.
+  const monthCityRevenue = (() => {
+    const totals = new Map<string, number>();
+    for (const p of payments) {
+      if (p.status !== "success") continue;
+      if (p.created_at.slice(0, 7) !== revenueMonth) continue;
+      const city = p.courier?.city || "Без міста";
+      totals.set(city, (totals.get(city) || 0) + p.amount);
+    }
+    return Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
+  })();
+  const monthTotal = monthCityRevenue.reduce((sum, [, amount]) => sum + amount, 0);
   const activeSubsCount = subscriptions.filter(s => s.status === "active").length;
   const pendingCount = payments.filter(p => p.status === "pending").length;
 
@@ -112,6 +127,35 @@ export default function AdminPaymentsPage() {
               <div className="text-xs text-slate-500 mt-1">{s.label}</div>
             </div>
           ))}
+        </div>
+
+        {/* Дохід за місяць по містах */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-slate-900">Дохід за місяць по містах</h2>
+            <input
+              type="month"
+              value={revenueMonth}
+              onChange={e => setRevenueMonth(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          {monthCityRevenue.length === 0 ? (
+            <p className="text-slate-400 text-sm">За цей місяць оплат ще немає</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {monthCityRevenue.map(([city, amount]) => (
+                <div key={city} className="bg-slate-50 rounded-xl p-4 text-center">
+                  <div className="text-xl font-bold text-green-600">{amount.toLocaleString("uk-UA")} грн</div>
+                  <div className="text-xs text-slate-500 mt-1">{city}</div>
+                </div>
+              ))}
+              <div className="bg-slate-900 rounded-xl p-4 text-center">
+                <div className="text-xl font-bold text-white">{monthTotal.toLocaleString("uk-UA")} грн</div>
+                <div className="text-xs text-slate-300 mt-1">Разом</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}

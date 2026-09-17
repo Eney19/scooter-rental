@@ -8,6 +8,7 @@ const lbl = "block text-sm font-medium text-slate-700 mb-1";
 const CITIES = ["Луцьк", "Рівне", "Львів"];
 const SCOOTER_MODELS = ["FADA Flit II", "Aima u1s", "Dominator A-9", "Crosser CR 21 Tank"];
 const PRICE_OPTIONS = ["1750", "2100", "2400", "2800"];
+const TELEGRAM_BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
 
 type Courier = {
   id: string;
@@ -25,6 +26,7 @@ type Courier = {
   debt_since: string | null;
   debt_amount: number | null;
   debt_auto: boolean | null;
+  telegram_chat_id: number | null;
 };
 
 type Subscription = {
@@ -359,6 +361,24 @@ export default function CabinetPage() {
             Вийти з кабінету
           </button>
         </div>
+
+        {!courier.telegram_chat_id && (
+          <a
+            href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
+            target="_blank"
+            className="block bg-sky-50 border border-sky-200 rounded-2xl shadow-sm p-4 hover:bg-sky-100 transition-colors"
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">✈️</span>
+              <div>
+                <p className="font-semibold text-sky-900 text-sm">Підключіть Telegram-бот PowerDrive</p>
+                <p className="text-sky-700 text-xs mt-0.5">
+                  Нагадування про оплату, статус підписки та швидка оплата — прямо в Telegram. Натисніть, щоб підключити.
+                </p>
+              </div>
+            </div>
+          </a>
+        )}
 
         <div className="bg-white rounded-2xl shadow-lg p-6 space-y-3">
           <h2 className="font-bold text-slate-900">Договір</h2>

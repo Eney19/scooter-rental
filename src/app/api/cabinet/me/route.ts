@@ -13,7 +13,7 @@ export async function GET() {
     .select(
       "id, full_name, phone, city, status, weekly_price, scooter_model, battery_types, " +
       "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, " +
-      "subscription_start_date, debt_since, debt_amount, debt_auto"
+      "subscription_start_date, debt_since, debt_amount, debt_auto, telegram_chat_id"
     )
     .eq("id", courierId)
     .maybeSingle();

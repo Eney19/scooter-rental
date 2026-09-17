@@ -105,9 +105,18 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Дату старту підписки фіксуємо лише при фактичному новому взятті
+      // скутера (не при оплаті наперед активної підписки).
       const { data: courierRow } = await supabaseAdmin
         .from("couriers")
-        .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
+        .update({
+          status: "active",
+          registration_step: 3,
+          debt_since: null,
+          debt_amount: null,
+          debt_auto: false,
+          ...(!existingSub ? { subscription_start_date: new Date().toISOString() } : {}),
+        })
         .eq("id", courierId)
         .select("full_name, phone, city, scooter_model, battery_types, weekly_price, contract_signed_at")
         .single();

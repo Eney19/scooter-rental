@@ -141,10 +141,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Оновлюємо статус кур'єра
+      // Оновлюємо статус кур'єра. Дату старту підписки фіксуємо лише при
+      // фактичному новому взятті скутера (не при оплаті наперед активної підписки).
       await supabaseAdmin
         .from("couriers")
-        .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
+        .update({
+          status: "active",
+          registration_step: 3,
+          debt_since: null,
+          debt_amount: null,
+          debt_auto: false,
+          ...(!existingSub ? { subscription_start_date: new Date().toISOString() } : {}),
+        })
         .eq("id", courierId);
     }
 

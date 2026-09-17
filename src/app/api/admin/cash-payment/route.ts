@@ -83,9 +83,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Фіксуємо дату старту підписки лише при фактичному новому взятті скутера
+    // (не при оплаті наперед активної підписки) — визначає день тижня для
+    // щотижневого нагадування "хто платить сьогодні".
     await supabaseAdmin
       .from("couriers")
-      .update({ status: "active", registration_step: 3, debt_since: null, debt_amount: null, debt_auto: false })
+      .update({
+        status: "active",
+        registration_step: 3,
+        debt_since: null,
+        debt_amount: null,
+        debt_auto: false,
+        ...(!existingSub ? { subscription_start_date: now } : {}),
+      })
       .eq("id", courierId);
 
     // Так само як в monopay-вебхуку: новий період оренди відкриваємо лише

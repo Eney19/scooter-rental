@@ -131,6 +131,22 @@ export default function AdminCouriersPage() {
     }
   }
 
+  async function updatePaymentDate(paymentId: string, courierId: string, date: string) {
+    if (!date) return;
+    const value = new Date(date).toISOString();
+    const { error } = await supabase.from("payments").update({ created_at: value }).eq("id", paymentId);
+    if (error) {
+      console.error("updatePaymentDate failed", error);
+      alert(`Не вдалося зберегти дату оплати: ${error.message}`);
+      return;
+    }
+    setCourierPayments(prev =>
+      prev
+        .map(p => p.id === paymentId ? { ...p, created_at: value } : p)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    );
+  }
+
   async function loadCourierPayments(courierId: string) {
     setCourierPaymentsLoading(true);
     const { data } = await supabase
@@ -765,7 +781,16 @@ export default function AdminCouriersPage() {
                       return (
                         <div key={p.id} className={`flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 ${isFailed ? "opacity-70" : ""}`}>
                           <div>
-                            <p className="font-medium text-slate-900">{new Date(p.created_at).toLocaleDateString("uk-UA")}</p>
+                            {p.wayforpay_id?.startsWith("cash_") ? (
+                              <input
+                                type="date"
+                                value={p.created_at.slice(0, 10)}
+                                onChange={e => updatePaymentDate(p.id, selected.id, e.target.value)}
+                                className="font-medium text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-200 focus:border-emerald-500 focus:outline-none -ml-0.5"
+                              />
+                            ) : (
+                              <p className="font-medium text-slate-900">{new Date(p.created_at).toLocaleDateString("uk-UA")}</p>
+                            )}
                             <p className="text-slate-400 text-xs">
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}

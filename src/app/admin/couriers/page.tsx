@@ -45,7 +45,7 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
   3: "очікує оплату",
 };
 
-type SubInfo = { expires_at: string; paid_at: string | null; amount: number };
+type SubInfo = { id: string; expires_at: string; paid_at: string | null; amount: number };
 
 function weeksWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -99,11 +99,11 @@ export default function AdminCouriersPage() {
 
     const { data: subs } = await supabase
       .from("subscriptions")
-      .select("courier_id, expires_at, paid_at, amount")
+      .select("id, courier_id, expires_at, paid_at, amount")
       .eq("status", "active");
     const map: Record<string, SubInfo> = {};
     (subs || []).forEach((s) => {
-      map[s.courier_id] = { expires_at: s.expires_at, paid_at: s.paid_at, amount: s.amount };
+      map[s.courier_id] = { id: s.id, expires_at: s.expires_at, paid_at: s.paid_at, amount: s.amount };
     });
     setSubsByCourier(map);
 
@@ -141,6 +141,21 @@ export default function AdminCouriersPage() {
     await supabase.from("couriers").update({ subscription_start_date: value }).eq("id", id);
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, subscription_start_date: value } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, subscription_start_date: value } : null);
+  }
+
+  async function updateSubscriptionDate(courierId: string, subId: string, field: "paid_at" | "expires_at", date: string) {
+    const value = date || null;
+    const { error } = await supabase.from("subscriptions").update({ [field]: value }).eq("id", subId);
+    if (error) {
+      console.error(`updateSubscriptionDate(${field}) failed`, error);
+      alert(`Не вдалося зберегти дату: ${error.message}`);
+      return;
+    }
+    setSubsByCourier(prev => {
+      const current = prev[courierId];
+      if (!current) return prev;
+      return { ...prev, [courierId]: { ...current, [field]: value as string } };
+    });
   }
 
   async function updateDebtSince(id: string, date: string) {
@@ -618,22 +633,31 @@ export default function AdminCouriersPage() {
                   const weeks = weeksAheadPaid(sub.expires_at);
                   const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
                   return (
-                    <div className="text-sm space-y-1">
+                    <div className="text-sm space-y-2">
+                      <div className="flex gap-2 items-center">
+                        <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата з</span>
+                        <input
+                          type="date"
+                          value={sub.paid_at ? sub.paid_at.slice(0, 10) : ""}
+                          onChange={e => updateSubscriptionDate(selected.id, sub.id, "paid_at", e.target.value)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата до</span>
+                        <input
+                          type="date"
+                          value={sub.expires_at ? sub.expires_at.slice(0, 10) : ""}
+                          onChange={e => updateSubscriptionDate(selected.id, sub.id, "expires_at", e.target.value)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
                       {weeks <= 0 ? (
                         <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
-                      ) : (
-                        <p className="text-slate-700">
-                          Оплачено до <span className="font-medium">{dateStr}</span>
-                          {weeks >= 2 && (
-                            <span className="text-emerald-600 font-medium"> (це і {weeks - 1} {weeksWord(weeks - 1)} наперед)</span>
-                          )}
-                        </p>
-                      )}
-                      {sub.paid_at && (
-                        <p className="text-slate-400 text-xs">
-                          Остання оплата: {new Date(sub.paid_at).toLocaleDateString("uk-UA")} · {sub.amount} грн
-                        </p>
-                      )}
+                      ) : weeks >= 2 ? (
+                        <p className="text-emerald-600 font-medium text-xs">Це і {weeks - 1} {weeksWord(weeks - 1)} наперед</p>
+                      ) : null}
+                      <p className="text-slate-400 text-xs">Сума останньої оплати: {sub.amount} грн</p>
                     </div>
                   );
                 })() : (

@@ -32,6 +32,7 @@ type Courier = {
   last_cabinet_login_at: string | null;
   telegram_chat_id: number | null;
   telegram_connected_at: string | null;
+  deleted_at: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -81,11 +82,14 @@ export default function AdminCouriersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [telegramFilter, setTelegramFilter] = useState("all");
   const [emailFilter, setEmailFilter] = useState("all");
+  const [showTrash, setShowTrash] = useState(false);
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
   const [showReturnOptions, setShowReturnOptions] = useState(false);
   const [returnLoading, setReturnLoading] = useState(false);
   const [deletingIncomplete, setDeletingIncomplete] = useState(false);
+  const [deletingCourier, setDeletingCourier] = useState(false);
+  const [restoringCourier, setRestoringCourier] = useState(false);
   const [sendingTelegramReminder, setSendingTelegramReminder] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [showCashDatePicker, setShowCashDatePicker] = useState(false);
@@ -408,6 +412,45 @@ export default function AdminCouriersPage() {
     }
   }
 
+  async function handleDeleteCourier() {
+    if (!selected) return;
+    if (!confirm(`Видалити курʼєра "${selected.full_name}" (${selected.phone})? Кур'єр потрапить у кошик, усі дані (платежі, підписки, документи) збережуться — це можна скасувати.`)) {
+      return;
+    }
+    setDeletingCourier(true);
+    try {
+      const deletedAt = new Date().toISOString();
+      const { error } = await supabase.from("couriers").update({ deleted_at: deletedAt }).eq("id", selected.id);
+      if (error) {
+        console.error("handleDeleteCourier failed", error);
+        alert(`Не вдалося видалити кур'єра: ${error.message}`);
+        return;
+      }
+      setCouriers(prev => prev.map(c => c.id === selected.id ? { ...c, deleted_at: deletedAt } : c));
+      selectCourier(null);
+    } finally {
+      setDeletingCourier(false);
+    }
+  }
+
+  async function handleRestoreCourier() {
+    if (!selected) return;
+    if (!confirm(`Відновити курʼєра "${selected.full_name}" (${selected.phone}) з кошика?`)) return;
+    setRestoringCourier(true);
+    try {
+      const { error } = await supabase.from("couriers").update({ deleted_at: null }).eq("id", selected.id);
+      if (error) {
+        console.error("handleRestoreCourier failed", error);
+        alert(`Не вдалося відновити кур'єра: ${error.message}`);
+        return;
+      }
+      setCouriers(prev => prev.map(c => c.id === selected.id ? { ...c, deleted_at: null } : c));
+      selectCourier(null);
+    } finally {
+      setRestoringCourier(false);
+    }
+  }
+
   async function sendTelegramReminderEmails() {
     setSendingTelegramReminder(true);
     try {
@@ -425,7 +468,12 @@ export default function AdminCouriersPage() {
     }
   }
 
-  const filtered = couriers.filter(c => {
+  const activeCouriers = couriers.filter(c => !c.deleted_at);
+  const trashedCouriers = couriers
+    .filter(c => c.deleted_at)
+    .sort((a, b) => new Date(b.deleted_at as string).getTime() - new Date(a.deleted_at as string).getTime());
+
+  const filtered = (showTrash ? trashedCouriers : activeCouriers).filter(c => {
     const matchSearch = !search ||
       c.full_name?.toLowerCase().includes(search.toLowerCase()) ||
       c.phone?.includes(search);
@@ -527,14 +575,20 @@ export default function AdminCouriersPage() {
             >
               {sendingTelegramReminder ? "Надсилаємо..." : "📧 Нагадати про Telegram"}
             </button>
+            <button
+              onClick={() => { setShowTrash(v => !v); selectCourier(null); }}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${showTrash ? "bg-red-600 text-white border-red-600 hover:bg-red-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+            >
+              🗑 Кошик{trashedCouriers.length > 0 ? ` (${trashedCouriers.length})` : ""}
+            </button>
           </div>
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3 mb-3">
             {[
-              { label: "Всього", value: couriers.length, color: "text-slate-900" },
-              { label: "Активних", value: couriers.filter(c => c.status === "active").length, color: "text-green-600" },
-              { label: "Очікують", value: couriers.filter(c => !c.status || c.status === "pending").length, color: "text-yellow-600" },
+              { label: "Всього", value: activeCouriers.length, color: "text-slate-900" },
+              { label: "Активних", value: activeCouriers.filter(c => c.status === "active").length, color: "text-green-600" },
+              { label: "Очікують", value: activeCouriers.filter(c => !c.status || c.status === "pending").length, color: "text-yellow-600" },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4 text-center">
                 <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
@@ -546,15 +600,15 @@ export default function AdminCouriersPage() {
           {/* Telegram stats — щоб бачити, чи спрацювала розсилка-нагадування */}
           <div className="grid grid-cols-3 gap-3 mb-4">
             {[
-              { label: "Підключено до Telegram", value: couriers.filter(c => c.telegram_chat_id).length, color: "text-sky-600" },
+              { label: "Підключено до Telegram", value: activeCouriers.filter(c => c.telegram_chat_id).length, color: "text-sky-600" },
               {
                 label: "Підключились сьогодні",
-                value: couriers.filter(c => c.telegram_connected_at && new Date(c.telegram_connected_at).toDateString() === new Date().toDateString()).length,
+                value: activeCouriers.filter(c => c.telegram_connected_at && new Date(c.telegram_connected_at).toDateString() === new Date().toDateString()).length,
                 color: "text-emerald-600",
               },
               {
                 label: "Підключились за 7 днів",
-                value: couriers.filter(c => c.telegram_connected_at && (Date.now() - new Date(c.telegram_connected_at).getTime()) <= 7 * 24 * 60 * 60 * 1000).length,
+                value: activeCouriers.filter(c => c.telegram_connected_at && (Date.now() - new Date(c.telegram_connected_at).getTime()) <= 7 * 24 * 60 * 60 * 1000).length,
                 color: "text-emerald-600",
               },
             ].map(s => (
@@ -570,7 +624,7 @@ export default function AdminCouriersPage() {
             {loading ? (
               <div className="p-8 text-center text-slate-400">Завантаження...</div>
             ) : filtered.length === 0 ? (
-              <div className="p-8 text-center text-slate-400">Кур'єрів не знайдено</div>
+              <div className="p-8 text-center text-slate-400">{showTrash ? "У кошику нікого немає" : "Кур'єрів не знайдено"}</div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -581,7 +635,7 @@ export default function AdminCouriersPage() {
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Статус</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Борг</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-medium">Договір</th>
-                    <th className="text-left px-4 py-3 text-slate-500 font-medium">Дата</th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">{showTrash ? "Дата видалення" : "Дата"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -651,7 +705,9 @@ export default function AdminCouriersPage() {
                         ) : <span className="text-slate-300 text-xs">—</span>}
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs">
-                        {new Date(c.created_at).toLocaleDateString("uk-UA")}
+                        {c.deleted_at
+                          ? new Date(c.deleted_at).toLocaleDateString("uk-UA")
+                          : new Date(c.created_at).toLocaleDateString("uk-UA")}
                       </td>
                     </tr>
                   ))}
@@ -678,6 +734,21 @@ export default function AdminCouriersPage() {
                 </div>
                 <button onClick={() => selectCourier(null)} className="text-slate-300 hover:text-slate-500 text-lg">×</button>
               </div>
+
+              {selected.deleted_at && (
+                <div className="border border-red-200 bg-red-50 rounded-xl p-3 mb-4">
+                  <p className="text-xs text-red-700 mb-2">
+                    🗑 Видалено {new Date(selected.deleted_at).toLocaleString("uk-UA")}. Усі дані збережено — курʼєра можна відновити.
+                  </p>
+                  <button
+                    onClick={handleRestoreCourier}
+                    disabled={restoringCourier}
+                    className="text-xs font-medium text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-60"
+                  >
+                    {restoringCourier ? "Відновлення..." : "♻️ Відновити з кошика"}
+                  </button>
+                </div>
+              )}
 
               {(selected.status || "pending") === "pending" && (selected.registration_step ?? 3) < 3 && (
                 <div className="border border-amber-200 bg-amber-50 rounded-xl p-3 mb-4">
@@ -1181,6 +1252,18 @@ export default function AdminCouriersPage() {
                   ? new Date(selected.last_cabinet_login_at).toLocaleString("uk-UA")
                   : "ще не заходив(ла)"}
               </p>
+
+              {!selected.deleted_at && (
+                <div className="border-t border-slate-100 pt-4 mt-4">
+                  <button
+                    onClick={handleDeleteCourier}
+                    disabled={deletingCourier}
+                    className="block w-full text-center text-red-600 border border-red-200 rounded-xl py-2 text-xs font-medium hover:bg-red-50 disabled:opacity-60"
+                  >
+                    {deletingCourier ? "Видалення..." : "🗑 Видалити курʼєра"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -79,6 +79,7 @@ export default function AdminCouriersPage() {
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [telegramFilter, setTelegramFilter] = useState("all");
+  const [emailFilter, setEmailFilter] = useState("all");
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
   const [showReturnOptions, setShowReturnOptions] = useState(false);
@@ -420,7 +421,10 @@ export default function AdminCouriersPage() {
     const matchTelegram =
       telegramFilter === "all" ||
       (telegramFilter === "connected" ? !!c.telegram_chat_id : !c.telegram_chat_id);
-    return matchSearch && matchCity && matchStatus && matchTelegram;
+    const matchEmail =
+      emailFilter === "all" ||
+      (emailFilter === "has_email" ? !!c.email : !c.email);
+    return matchSearch && matchCity && matchStatus && matchTelegram && matchEmail;
   });
 
   const cities = ["all", "Луцьк", "Рівне", "Львів"];
@@ -490,6 +494,15 @@ export default function AdminCouriersPage() {
               <option value="all">Telegram: всі</option>
               <option value="connected">Підключені</option>
               <option value="not_connected">Не підключені</option>
+            </select>
+            <select
+              value={emailFilter}
+              onChange={e => setEmailFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Email: всі</option>
+              <option value="has_email">Є email</option>
+              <option value="no_email">Без email</option>
             </select>
             <button onClick={loadCouriers} className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
               Оновити

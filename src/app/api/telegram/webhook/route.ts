@@ -223,8 +223,38 @@ export async function POST(req: NextRequest) {
     const text = message.text || "";
     const phone = message.contact?.phone_number;
 
-    // Команда /start
+    // Команда /start — з диплінка (t.me/<bot>?start=<courierId>) підключаємо
+    // одразу за courierId, без ручного ділення номером телефону. Якщо
+    // payload відсутній або не знайдено — падаємо в старий flow нижче
+    // (запит номера через кнопку "Поділитися номером").
     if (text.startsWith("/start")) {
+      const startPayload = text.slice("/start".length).trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(startPayload);
+
+      if (isUuid) {
+        const { data: courierByLink } = await supabaseAdmin
+          .from("couriers")
+          .select("id, full_name")
+          .eq("id", startPayload)
+          .maybeSingle();
+
+        if (courierByLink) {
+          await supabaseAdmin
+            .from("couriers")
+            .update({ telegram_chat_id: chatId })
+            .eq("id", courierByLink.id);
+
+          await sendMessage(chatId,
+            `✅ <b>${courierByLink.full_name}</b>, вас успішно підключено!\n\n` +
+            `Тепер ви будете отримувати нагадування про оплату оренди.\n\n` +
+            `Доступні команди:\n` +
+            `/status — статус підписки\n` +
+            `/pay — оплатити оренду`
+          );
+          return NextResponse.json({ ok: true });
+        }
+      }
+
       await sendMessage(chatId,
         `👋 Вітаємо в <b>PowerDrive</b>!\n\n` +
         `Цей бот допоможе вам:\n` +

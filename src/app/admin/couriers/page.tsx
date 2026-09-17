@@ -84,6 +84,7 @@ export default function AdminCouriersPage() {
   const [showReturnOptions, setShowReturnOptions] = useState(false);
   const [returnLoading, setReturnLoading] = useState(false);
   const [deletingIncomplete, setDeletingIncomplete] = useState(false);
+  const [sendingTelegramReminder, setSendingTelegramReminder] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [showCashDatePicker, setShowCashDatePicker] = useState(false);
   const [cashPaymentDate, setCashPaymentDate] = useState("");
@@ -393,6 +394,23 @@ export default function AdminCouriersPage() {
     }
   }
 
+  async function sendTelegramReminderEmails() {
+    setSendingTelegramReminder(true);
+    try {
+      const res = await fetch("/api/admin/telegram-reminder-email", { method: "POST" });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Не вдалося надіслати листи");
+        return;
+      }
+      alert(`Надіслано: ${data.sent} з ${data.total}${data.failed ? ` (помилок: ${data.failed})` : ""}`);
+    } catch {
+      alert("Помилка з'єднання");
+    } finally {
+      setSendingTelegramReminder(false);
+    }
+  }
+
   const filtered = couriers.filter(c => {
     const matchSearch = !search ||
       c.full_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -475,6 +493,13 @@ export default function AdminCouriersPage() {
             </select>
             <button onClick={loadCouriers} className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
               Оновити
+            </button>
+            <button
+              onClick={sendTelegramReminderEmails}
+              disabled={sendingTelegramReminder}
+              className="px-4 py-2.5 border border-sky-200 text-sky-700 bg-sky-50 rounded-xl text-sm font-medium hover:bg-sky-100 disabled:opacity-60"
+            >
+              {sendingTelegramReminder ? "Надсилаємо..." : "📧 Нагадати про Telegram"}
             </button>
           </div>
 

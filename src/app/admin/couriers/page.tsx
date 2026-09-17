@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
-import { getBatteryLabels } from "@/lib/pricing";
+import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -53,6 +53,13 @@ function weeksWord(n: number): string {
   if (mod10 === 1 && mod100 !== 11) return "тиждень";
   if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "тижні";
   return "тижнів";
+}
+
+function daysWord(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "дні";
+  return "днів";
 }
 
 // Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
@@ -833,6 +840,33 @@ export default function AdminCouriersPage() {
                       className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                     />
                   </div>
+                  {selected.debt_since && (() => {
+                    const baseAmount = getWeeklyPrice(selected);
+                    const days = daysSinceDebt(selected.debt_since);
+                    const penalty = days * DEBT_PENALTY_PER_DAY;
+                    const computedTotal = baseAmount + penalty;
+                    return (
+                      <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-xs space-y-0.5">
+                        <p className="flex justify-between text-slate-600">
+                          <span>Борг за підписку</span><span>{baseAmount} грн</span>
+                        </p>
+                        <p className="flex justify-between text-slate-600">
+                          <span>Пеня ({days} {daysWord(days)} × {DEBT_PENALTY_PER_DAY} грн)</span><span>{penalty} грн</span>
+                        </p>
+                        <p className="flex justify-between font-medium text-red-700 border-t border-red-100 pt-0.5">
+                          <span>Разом зараз</span><span>{computedTotal} грн</span>
+                        </p>
+                        {selected.debt_amount !== computedTotal && (
+                          <button
+                            onClick={() => saveDebtAmount(selected.id, String(computedTotal))}
+                            className="w-full mt-1 text-[11px] text-red-600 hover:text-red-800 underline"
+                          >
+                            Оновити суму боргу до {computedTotal} грн
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
                     <input
@@ -847,7 +881,7 @@ export default function AdminCouriersPage() {
                   </div>
                   {selected.debt_auto && (
                     <p className="text-[11px] text-slate-400">
-                      Рахується автоматично: +{150} грн/день, поки борг не погашено. Зміните значення вручну — і автонарахування для цього кур'єра зупиниться.
+                      Рахується автоматично: +{DEBT_PENALTY_PER_DAY} грн/день, поки борг не погашено. Зміните значення вручну — і автонарахування для цього кур'єра зупиниться.
                     </p>
                   )}
                 </div>

@@ -66,15 +66,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       .map(id => BATTERY_OPTIONS.find(b => b.id === id)?.label as string | undefined)
       .filter(Boolean) as string[];
   }
-  // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер
-  // протягом DEBT_GRACE_DAYS днів після закінчення підписки, він автоматично
-  // стає боржником. З цього моменту щодня нараховується пеня DEBT_PENALTY_PER_DAY.
-  export const DEBT_GRACE_DAYS = 7;
-  export const DEBT_PENALTY_PER_DAY = 150;
+  // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер,
+  // він одразу ж (без пільгового періоду) автоматично стає боржником. З дня
+  // прострочення підписки щодня нараховується пеня DEBT_PENALTY_PER_DAY.
+  export const DEBT_GRACE_DAYS = 0;
+  export const DEBT_PENALTY_PER_DAY = 50;
 
-  // Дата, з якої кур'єр офіційно вважається боржником: через DEBT_GRACE_DAYS днів
-  // після дати закінчення підписки (фіксована дата, не залежить від того, коли саме
-  // спрацював cron).
+  // Дата, з якої кур'єр офіційно вважається боржником — це дата закінчення
+  // підписки (DEBT_GRACE_DAYS = 0, без пільгового періоду).
   export function calculateDebtSince(expiresAt: string | Date): Date {
     const d = new Date(expiresAt);
     d.setDate(d.getDate() + DEBT_GRACE_DAYS);

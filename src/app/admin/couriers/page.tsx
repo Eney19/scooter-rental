@@ -33,6 +33,7 @@ type Courier = {
   telegram_chat_id: number | null;
   telegram_connected_at: string | null;
   deleted_at: string | null;
+  admin_comment: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -871,6 +872,18 @@ export default function AdminCouriersPage() {
                     <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">— Не підключено</span>
                   )}
                 </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Коментар (видно лише в адмінці)</p>
+                <textarea
+                  value={selected.admin_comment || ""}
+                  onChange={e => handleFieldChange("admin_comment", e.target.value)}
+                  onBlur={e => saveField(selected.id, "admin_comment", e.target.value)}
+                  placeholder="Нотатка про кур'єра..."
+                  rows={3}
+                  className="w-full text-sm text-slate-700 bg-transparent border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 resize-none"
+                />
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">

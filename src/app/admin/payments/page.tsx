@@ -45,6 +45,7 @@ export default function AdminPaymentsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -69,8 +70,14 @@ export default function AdminPaymentsPage() {
   const activeSubsCount = subscriptions.filter(s => s.status === "active").length;
   const pendingCount = payments.filter(p => p.status === "pending").length;
 
-  const filteredPayments = payments.filter(p => statusFilter === "all" || p.status === statusFilter);
-  const filteredSubs = subscriptions.filter(s => statusFilter === "all" || s.status === statusFilter);
+  const filteredPayments = payments.filter(p =>
+    (statusFilter === "all" || p.status === statusFilter) &&
+    (!search || p.courier?.full_name?.toLowerCase().includes(search.toLowerCase()))
+  );
+  const filteredSubs = subscriptions.filter(s =>
+    (statusFilter === "all" || s.status === statusFilter) &&
+    (!search || s.courier?.full_name?.toLowerCase().includes(search.toLowerCase()))
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -125,6 +132,13 @@ export default function AdminPaymentsPage() {
 
         {/* Filter */}
         <div className="flex gap-3 mb-4">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Пошук за ПІБ курʼєра..."
+            className="flex-1 min-w-48 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+          />
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}

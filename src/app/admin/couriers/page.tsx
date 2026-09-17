@@ -78,6 +78,7 @@ export default function AdminCouriersPage() {
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [telegramFilter, setTelegramFilter] = useState("all");
   const [selected, setSelected] = useState<Courier | null>(null);
   const [showReturnQR, setShowReturnQR] = useState(false);
   const [showReturnOptions, setShowReturnOptions] = useState(false);
@@ -398,7 +399,10 @@ export default function AdminCouriersPage() {
       c.phone?.includes(search);
     const matchCity = cityFilter === "all" || c.city === cityFilter;
     const matchStatus = statusFilter === "all" || c.status === statusFilter;
-    return matchSearch && matchCity && matchStatus;
+    const matchTelegram =
+      telegramFilter === "all" ||
+      (telegramFilter === "connected" ? !!c.telegram_chat_id : !c.telegram_chat_id);
+    return matchSearch && matchCity && matchStatus && matchTelegram;
   });
 
   const cities = ["all", "Луцьк", "Рівне", "Львів"];
@@ -459,6 +463,15 @@ export default function AdminCouriersPage() {
               <option value="pending">Очікують</option>
               <option value="inactive">Неактивні</option>
               <option value="debtor">Боржники</option>
+            </select>
+            <select
+              value={telegramFilter}
+              onChange={e => setTelegramFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Telegram: всі</option>
+              <option value="connected">Підключені</option>
+              <option value="not_connected">Не підключені</option>
             </select>
             <button onClick={loadCouriers} className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
               Оновити

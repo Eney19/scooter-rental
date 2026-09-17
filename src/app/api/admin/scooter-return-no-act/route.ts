@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       .from("couriers")
       .update({
         status: "inactive",
+        return_signed_at: new Date().toISOString(),
         debt_since: null,
         debt_amount: null,
         debt_auto: false,

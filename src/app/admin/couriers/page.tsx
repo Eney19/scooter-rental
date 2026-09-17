@@ -455,7 +455,11 @@ export default function AdminCouriersPage() {
                             {c.registration_attempts && c.registration_attempts > 1 ? ` · спроба ${c.registration_attempts}` : ""}
                           </div>
                         )}
-                        {subsByCourier[c.id] && (() => {
+                        {c.status === "inactive" && c.return_signed_at ? (
+                          <div className="text-slate-400 text-[11px] mt-1">
+                            Скутер здано {new Date(c.return_signed_at).toLocaleDateString("uk-UA")}
+                          </div>
+                        ) : subsByCourier[c.id] && (() => {
                           const sub = subsByCourier[c.id];
                           const weeks = weeksAheadPaid(sub.expires_at);
                           const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
@@ -647,7 +651,11 @@ export default function AdminCouriersPage() {
 
               <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Підписка</p>
-                {subsByCourier[selected.id] ? (() => {
+                {selected.status === "inactive" && selected.return_signed_at ? (
+                  <p className="text-slate-500 text-sm">
+                    ✅ Скутер здано {new Date(selected.return_signed_at).toLocaleDateString("uk-UA")}
+                  </p>
+                ) : subsByCourier[selected.id] ? (() => {
                   const sub = subsByCourier[selected.id];
                   const weeks = weeksAheadPaid(sub.expires_at);
                   const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");

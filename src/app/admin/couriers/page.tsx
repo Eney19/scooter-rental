@@ -78,6 +78,9 @@ export default function AdminCouriersPage() {
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
   const [showCashDatePicker, setShowCashDatePicker] = useState(false);
   const [cashPaymentDate, setCashPaymentDate] = useState("");
+  const [cashRentAmount, setCashRentAmount] = useState("");
+  const [cashDepositAmount, setCashDepositAmount] = useState("");
+  const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
@@ -238,9 +241,28 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
   }
 
-  function openCashDatePicker() {
+  async function openCashDatePicker(courierId: string) {
     setCashPaymentDate(new Date().toISOString().slice(0, 10));
+    setCashRentAmount("");
+    setCashDepositAmount("");
     setShowCashDatePicker(true);
+    setCashPreviewLoading(true);
+    try {
+      const res = await fetch("/api/admin/cash-payment-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCashRentAmount(String(data.rentAmount));
+        setCashDepositAmount(String(data.deposit));
+      }
+    } catch (e) {
+      console.error("cash-payment-preview failed", e);
+    } finally {
+      setCashPreviewLoading(false);
+    }
   }
 
   async function handleCashPayment(courierId: string, paidAt: string) {
@@ -249,7 +271,12 @@ export default function AdminCouriersPage() {
       const res = await fetch("/api/admin/cash-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courierId, paidAt }),
+        body: JSON.stringify({
+          courierId,
+          paidAt,
+          rentAmount: cashRentAmount === "" ? undefined : Number(cashRentAmount),
+          deposit: cashDepositAmount === "" ? undefined : Number(cashDepositAmount),
+        }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -858,10 +885,39 @@ export default function AdminCouriersPage() {
                     onChange={e => setCashPaymentDate(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
                   />
+                  {cashPreviewLoading ? (
+                    <p className="text-xs text-slate-400">Рахуємо суму...</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-slate-500 text-xs w-20 shrink-0">Оренда</span>
+                        <input
+                          type="number"
+                          value={cashRentAmount}
+                          onChange={e => setCashRentAmount(e.target.value)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-slate-400 text-xs shrink-0">грн</span>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-slate-500 text-xs w-20 shrink-0">Завдаток</span>
+                        <input
+                          type="number"
+                          value={cashDepositAmount}
+                          onChange={e => setCashDepositAmount(e.target.value)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-slate-400 text-xs shrink-0">грн</span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-medium">
+                        Разом: {(Number(cashRentAmount) || 0) + (Number(cashDepositAmount) || 0)} грн
+                      </p>
+                    </>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleCashPayment(selected.id, cashPaymentDate)}
-                      disabled={cashPaymentLoading || !cashPaymentDate}
+                      disabled={cashPaymentLoading || cashPreviewLoading || !cashPaymentDate}
                       className="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
                     >
                       {cashPaymentLoading ? "Обробка..." : "Підтвердити"}
@@ -877,7 +933,7 @@ export default function AdminCouriersPage() {
                 </div>
               ) : (
                 <button
-                  onClick={openCashDatePicker}
+                  onClick={() => openCashDatePicker(selected.id)}
                   className="block w-full text-center bg-emerald-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-emerald-700 mb-2"
                 >
                   💵 Оплачено готівкою

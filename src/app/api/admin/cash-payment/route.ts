@@ -6,7 +6,7 @@ import { openRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
   try {
-    const { courierId, paidAt } = await req.json();
+    const { courierId, paidAt, rentAmount: rentOverride, deposit: depositOverride } = await req.json();
 
     if (!courierId) {
       return NextResponse.json({ success: false, error: "courierId is required" }, { status: 400 });
@@ -31,11 +31,13 @@ export async function POST(req: NextRequest) {
      .single();
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-    const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late);
     // Завдаток за скутер стягується лише при першій оплаті кур'єра (як і в
-    // онлайн-оплаті), і теж залежить від міста.
+    // онлайн-оплаті), і теж залежить від міста. Адмін бачить ці суми
+    // заздалегідь (cash-payment-preview) і може їх відредагувати — якщо
+    // передані rentOverride/depositOverride, довіряємо їм замість перерахунку.
     const firstPayment = await isFirstPayment(courierId);
-    const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late);
+    const deposit = typeof depositOverride === "number" ? depositOverride : (firstPayment ? getDepositAmount(courier.city) : 0);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;

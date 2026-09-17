@@ -46,6 +46,7 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
 };
 
 type SubInfo = { id: string; expires_at: string; paid_at: string | null; amount: number };
+type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; created_at: string };
 
 function weeksWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -80,6 +81,8 @@ export default function AdminCouriersPage() {
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
   const [docFilesLoading, setDocFilesLoading] = useState(false);
   const [subsByCourier, setSubsByCourier] = useState<Record<string, SubInfo>>({});
+  const [courierPayments, setCourierPayments] = useState<PaymentRecord[]>([]);
+  const [courierPaymentsLoading, setCourierPaymentsLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -115,7 +118,23 @@ export default function AdminCouriersPage() {
     setShowReturnQR(false);
     setShowReturnOptions(false);
     setDocFiles({});
-    if (c) loadDocFiles(c.id);
+    setCourierPayments([]);
+    if (c) {
+      loadDocFiles(c.id);
+      loadCourierPayments(c.id);
+    }
+  }
+
+  async function loadCourierPayments(courierId: string) {
+    setCourierPaymentsLoading(true);
+    const { data } = await supabase
+      .from("payments")
+      .select("id, amount, deposit, battery_amount, wayforpay_id, created_at")
+      .eq("courier_id", courierId)
+      .eq("status", "success")
+      .order("created_at", { ascending: false });
+    setCourierPayments(data || []);
+    setCourierPaymentsLoading(false);
   }
 
   async function loadDocFiles(courierId: string) {
@@ -662,6 +681,42 @@ export default function AdminCouriersPage() {
                   );
                 })() : (
                   <p className="text-slate-300 text-sm">Немає активної підписки</p>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Історія платежів</p>
+                {courierPaymentsLoading ? (
+                  <p className="text-slate-300 text-sm">Завантаження...</p>
+                ) : courierPayments.length === 0 ? (
+                  <p className="text-slate-300 text-sm">Платежів ще немає</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {courierPayments.map((p) => {
+                      const deposit = p.deposit || 0;
+                      const batteryAmount = p.battery_amount || 0;
+                      const scooterAmount = p.amount - deposit - batteryAmount;
+                      const hasBreakdown = deposit > 0 || batteryAmount > 0;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                          <div>
+                            <p className="font-medium text-slate-900">{new Date(p.created_at).toLocaleDateString("uk-UA")}</p>
+                            <p className="text-slate-400 text-xs">
+                              {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
+                            </p>
+                            {hasBreakdown && (
+                              <p className="text-slate-400 text-xs">
+                                {scooterAmount} грн оренда скутера
+                                {batteryAmount > 0 && ` + ${batteryAmount} грн оренда акумулятора`}
+                                {deposit > 0 && ` + ${deposit} грн завдаток за скутер`}
+                              </p>
+                            )}
+                          </div>
+                          <p className="font-semibold text-slate-900">{p.amount} грн</p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 

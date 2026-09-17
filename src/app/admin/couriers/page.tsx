@@ -159,6 +159,18 @@ export default function AdminCouriersPage() {
     );
   }
 
+  async function updatePaymentAmount(paymentId: string, amountStr: string) {
+    const amount = parseFloat(amountStr);
+    if (!Number.isFinite(amount) || amount < 0) return;
+    const { error } = await supabase.from("payments").update({ amount }).eq("id", paymentId);
+    if (error) {
+      console.error("updatePaymentAmount failed", error);
+      alert(`Не вдалося зберегти суму оплати: ${error.message}`);
+      return;
+    }
+    setCourierPayments(prev => prev.map(p => p.id === paymentId ? { ...p, amount } : p));
+  }
+
   async function loadCourierPayments(courierId: string) {
     setCourierPaymentsLoading(true);
     const { data } = await supabase
@@ -903,7 +915,19 @@ export default function AdminCouriersPage() {
                               </div>
                             )}
                           </div>
-                          <p className={`font-semibold ${isFailed ? "text-red-500 line-through" : "text-slate-900"}`}>{p.amount} грн</p>
+                          {p.wayforpay_id?.startsWith("cash_") && !isFailed ? (
+                            <div className="flex items-baseline gap-1">
+                              <input
+                                type="number"
+                                defaultValue={p.amount}
+                                onBlur={e => updatePaymentAmount(p.id, e.target.value)}
+                                className="font-semibold text-slate-900 text-right w-20 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-emerald-500 focus:outline-none"
+                              />
+                              <span className="text-slate-500 text-xs">грн</span>
+                            </div>
+                          ) : (
+                            <p className={`font-semibold ${isFailed ? "text-red-500 line-through" : "text-slate-900"}`}>{p.amount} грн</p>
+                          )}
                         </div>
                       );
                     })}

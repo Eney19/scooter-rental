@@ -76,6 +76,8 @@ export default function AdminCouriersPage() {
   const [returnLoading, setReturnLoading] = useState(false);
   const [deletingIncomplete, setDeletingIncomplete] = useState(false);
   const [cashPaymentLoading, setCashPaymentLoading] = useState(false);
+  const [showCashDatePicker, setShowCashDatePicker] = useState(false);
+  const [cashPaymentDate, setCashPaymentDate] = useState("");
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
@@ -119,6 +121,7 @@ export default function AdminCouriersPage() {
     setShowReturnOptions(false);
     setDocFiles({});
     setCourierPayments([]);
+    setShowCashDatePicker(false);
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -235,20 +238,25 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
   }
 
-  async function handleCashPayment(courierId: string) {
-    if (!confirm("Підтвердити готівкову оплату? Підписка продовжиться на 7 днів.")) return;
+  function openCashDatePicker() {
+    setCashPaymentDate(new Date().toISOString().slice(0, 10));
+    setShowCashDatePicker(true);
+  }
+
+  async function handleCashPayment(courierId: string, paidAt: string) {
     setCashPaymentLoading(true);
     try {
       const res = await fetch("/api/admin/cash-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courierId }),
+        body: JSON.stringify({ courierId, paidAt }),
       });
       const data = await res.json();
       if (!data.success) {
         alert(data.error || "Не вдалося записати оплату");
         return;
       }
+      setShowCashDatePicker(false);
       if (!data.telegramLinked) {
         setTelegramPrompt({
           name: selected?.full_name || "",
@@ -260,6 +268,7 @@ export default function AdminCouriersPage() {
         alert(`Готівковий платіж записано: ${data.amount} грн`);
       }
       await loadCouriers();
+      await loadCourierPayments(courierId);
     } catch (e) {
       console.error(e);
       alert("Помилка мережі. Спробуйте ще раз");
@@ -840,13 +849,40 @@ export default function AdminCouriersPage() {
                 </div>
               )}
 
-              <button
-                onClick={() => handleCashPayment(selected.id)}
-                disabled={cashPaymentLoading}
-                className="block w-full text-center bg-emerald-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60 mb-2"
-              >
-                {cashPaymentLoading ? "Обробка..." : "💵 Оплачено готівкою"}
-              </button>
+              {showCashDatePicker ? (
+                <div className="border border-emerald-200 rounded-xl p-3 mb-2 bg-emerald-50 space-y-2">
+                  <p className="text-xs text-slate-600">Дата готівкової оплати:</p>
+                  <input
+                    type="date"
+                    value={cashPaymentDate}
+                    onChange={e => setCashPaymentDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCashPayment(selected.id, cashPaymentDate)}
+                      disabled={cashPaymentLoading || !cashPaymentDate}
+                      className="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {cashPaymentLoading ? "Обробка..." : "Підтвердити"}
+                    </button>
+                    <button
+                      onClick={() => setShowCashDatePicker(false)}
+                      disabled={cashPaymentLoading}
+                      className="px-3 text-xs text-slate-400 hover:text-slate-600"
+                    >
+                      Скасувати
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={openCashDatePicker}
+                  className="block w-full text-center bg-emerald-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-emerald-700 mb-2"
+                >
+                  💵 Оплачено готівкою
+                </button>
+              )}
 
               {showReturnOptions && (
                 <div className="border border-slate-200 rounded-xl p-3 mb-2 bg-slate-50 space-y-2">

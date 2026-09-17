@@ -6,7 +6,7 @@ import { openRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
   try {
-    const { courierId } = await req.json();
+    const { courierId, paidAt } = await req.json();
 
     if (!courierId) {
       return NextResponse.json({ success: false, error: "courierId is required" }, { status: 400 });
@@ -39,7 +39,10 @@ export async function POST(req: NextRequest) {
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;
-    const now = new Date().toISOString();
+    // Дата, яку адмін вказав як фактичну дату готівкової оплати (може бути
+    // заднім числом); якщо не передано — поточний момент.
+    const paidAtDate = paidAt ? new Date(paidAt) : new Date();
+    const now = paidAtDate.toISOString();
 
     const paymentParts: string[] = [`оренда скутера ${scooterAmount} грн`];
     if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
       type: "weekly_rent",
       status: "success",
       wayforpay_id: `cash_${Date.now()}`,
+      created_at: now,
     });
 
     const { data: existingSub } = await supabaseAdmin
@@ -64,8 +68,9 @@ export async function POST(req: NextRequest) {
       .single();
 
     // Той самий принцип, що і для monopay-вебхука: продовжуємо від поточного
-    // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від зараз.
-    const expiresAt = nextExpiryFrom(existingSub?.expires_at);
+    // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від
+    // вказаної дати оплати (paidAtDate, а не обов'язково "зараз").
+    const expiresAt = nextExpiryFrom(existingSub?.expires_at, paidAtDate);
 
     if (existingSub) {
       await supabaseAdmin

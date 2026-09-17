@@ -8,8 +8,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 // "від сьогодні" — інакше оплата наперед з'їдає вже оплачені дні. Якщо ж
 // підписка вже прострочена (або її ще немає — кур'єр неактивний і бере
 // скутер знову), відлік іде від поточного моменту.
-export function nextExpiryFrom(currentExpiresAt: string | Date | null | undefined): Date {
-  const now = new Date();
+export function nextExpiryFrom(currentExpiresAt: string | Date | null | undefined, referenceNow?: Date): Date {
+  const now = referenceNow || new Date();
   const currentExpiry = currentExpiresAt ? new Date(currentExpiresAt) : null;
   const base = currentExpiry && currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
   const next = new Date(base);

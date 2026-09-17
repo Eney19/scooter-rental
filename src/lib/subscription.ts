@@ -27,3 +27,32 @@ export async function isFirstPayment(courierId: string): Promise<boolean> {
     .eq("courier_id", courierId);
   return !count;
 }
+
+// Активація кур'єра після (готівкової) оплати — це один update(), від якого
+// залежить, чи побачить адмін курʼєра як "Активний", а не той факт, що
+// платіж/підписка вже записані. Раніше результат цього update() ніде не
+// перевірявся: якщо Supabase повертав помилку (а не кидав виняток), вона
+// мовчки ігнорувалась — платіж і підписка виглядали успішними, повідомлення
+// "оплату підтверджено" йшло курʼєру, а couriers.status так і лишався
+// "pending" назавжди (саме це сталося з Зубенко Сергієм Євгенійовичем).
+// Тепер перевіряємо помилку, ретраїмо один раз і повертаємо результат —
+// виклик має сповістити адміна, якщо це не допомогло.
+export async function activateCourier(
+  courierId: string,
+  extra: Record<string, unknown> = {}
+): Promise<{ ok: boolean; error: string | null }> {
+  const payload = { status: "active", ...extra };
+
+  let { error } = await supabaseAdmin.from("couriers").update(payload).eq("id", courierId);
+  if (error) {
+    console.error("activateCourier: update failed, retrying once", error, "courierId:", courierId);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    ({ error } = await supabaseAdmin.from("couriers").update(payload).eq("id", courierId));
+  }
+  if (error) {
+    console.error("activateCourier: update failed after retry", error, "courierId:", courierId);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, error: null };
+}
+

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { nextExpiryFrom, isFirstPayment } from "@/lib/subscription";
+import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 
 export async function POST(req: NextRequest) {
@@ -93,17 +93,37 @@ export async function POST(req: NextRequest) {
     // Фіксуємо дату старту підписки лише при фактичному новому взятті скутера
     // (не при оплаті наперед активної підписки) — визначає день тижня для
     // щотижневого нагадування "хто платить сьогодні".
-    await supabaseAdmin
-      .from("couriers")
-      .update({
-        status: "active",
-        registration_step: 3,
-        debt_since: null,
-        debt_amount: null,
-        debt_auto: false,
-        ...(!existingSub ? { subscription_start_date: now } : {}),
-      })
-      .eq("id", courierId);
+    const { ok: activated, error: activateError } = await activateCourier(courierId, {
+      registration_step: 3,
+      debt_since: null,
+      debt_amount: null,
+      debt_auto: false,
+      ...(!existingSub ? { subscription_start_date: now } : {}),
+    });
+
+    if (!activated) {
+      const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
+      const BOT_TOKEN_FOR_ALERT = process.env.TELEGRAM_BOT_TOKEN;
+      if (ADMIN_CHAT_ID && BOT_TOKEN_FOR_ALERT) {
+        try {
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN_FOR_ALERT}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: ADMIN_CHAT_ID,
+              parse_mode: "HTML",
+              text:
+                `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
+                `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
+                `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
+                `Перевірте вручну в адмінці.`,
+            }),
+          });
+        } catch (e) {
+          console.error("admin cash-payment: failed to notify admin about activation failure", e);
+        }
+      }
+    }
 
     // Так само як в monopay-вебхуку: новий період оренди відкриваємо лише
     // якщо це фактичне взяття скутера, а не оплата наперед активної підписки.

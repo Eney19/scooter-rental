@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { nextExpiryFrom, isFirstPayment } from "@/lib/subscription";
+import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -145,17 +145,23 @@ export async function POST(req: NextRequest) {
         // Активуємо кур'єра (важливо для першої оплати одразу після реєстрації).
         // Дату старту підписки фіксуємо лише при фактичному новому взятті
         // скутера (не при оплаті наперед активної підписки).
-        await supabaseAdmin
-          .from("couriers")
-          .update({
-            status: "active",
-            registration_step: 3,
-            debt_since: null,
-            debt_amount: null,
-            debt_auto: false,
-            ...(!existingSub ? { subscription_start_date: now } : {}),
-          })
-          .eq("id", courierId);
+        const { ok: activated, error: activateError } = await activateCourier(courierId, {
+          registration_step: 3,
+          debt_since: null,
+          debt_amount: null,
+          debt_auto: false,
+          ...(!existingSub ? { subscription_start_date: now } : {}),
+        });
+
+        if (!activated) {
+          await sendMessage(
+            parseInt(ADMIN_CHAT_ID),
+            `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
+            `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
+            `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
+            `Перевірте вручну в адмінці.`
+          );
+        }
 
         // Так само як в інших платіжних обробниках: новий період оренди
         // відкриваємо лише якщо це фактичне взяття скутера, а не оплата

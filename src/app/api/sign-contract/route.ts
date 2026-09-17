@@ -253,8 +253,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Договір збережено, але не вдалося прив'язати його до картки кур'єра. Зверніться до адміністратора.", pdfUrl }, { status: 500 });
     }
 
+    // Захист від гонки: підписання договору (генерація PDF може займати
+    // десятки секунд) інколи завершується ПІСЛЯ того, як адмін вже встиг
+    // підтвердити готівкову оплату (наприклад, якщо адмін фізично поруч і
+    // натискає "Оплачено готівкою" одразу, не чекаючи екрану "договір
+    // підписано"). Раніше цей апдейт безумовно писав status: "pending" і
+    // затирав щойно виставлений status: "active" — курʼєр лишався
+    // "Очікує" назавжди, попри реально прийняту оплату. Тепер перевіряємо
+    // поточний статус і не понижуємо його, якщо оплату вже зараховано.
+    const { data: courierBeforeUpdate } = await supabaseAdmin
+      .from("couriers")
+      .select("status")
+      .eq("id", courierId)
+      .single();
+
     const { error: courierUpdateError } = await supabaseAdmin.from("couriers").update({
-      status: "pending",
+      ...(courierBeforeUpdate?.status === "active" ? {} : { status: "pending" }),
       registration_step: 3,
       city,
       address,

@@ -733,11 +733,21 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                             </p>
                             {hasBreakdown && (
-                              <p className="text-slate-400 text-xs">
-                                {scooterAmount} грн оренда скутера
-                                {batteryAmount > 0 && ` + ${batteryAmount} грн оренда акумулятора`}
-                                {deposit > 0 && ` + ${deposit} грн завдаток за скутер`}
-                              </p>
+                              <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
+                                <p className="flex justify-between gap-3">
+                                  <span>Скутер</span><span>{scooterAmount} грн</span>
+                                </p>
+                                {batteryAmount > 0 && (
+                                  <p className="flex justify-between gap-3">
+                                    <span>Акумулятор</span><span>{batteryAmount} грн</span>
+                                  </p>
+                                )}
+                                {deposit > 0 && (
+                                  <p className="flex justify-between gap-3">
+                                    <span>Завдаток</span><span>{deposit} грн</span>
+                                  </p>
+                                )}
+                              </div>
                             )}
                           </div>
                           <p className="font-semibold text-slate-900">{p.amount} грн</p>

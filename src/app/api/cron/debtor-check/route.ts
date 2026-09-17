@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, daysSinceDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -80,12 +80,15 @@ export async function GET(req: NextRequest) {
       if (wasAlreadyDebtor) updated++; else flagged++;
 
       if (courier.telegram_chat_id) {
+        const overdueDays = daysSinceDebt(debtSince);
+        const dayWord = overdueDays === 1 ? "день" : overdueDays >= 2 && overdueDays <= 4 ? "дні" : "днів";
         await sendMessage(
           courier.telegram_chat_id,
           `🔴 <b>Заборгованість</b>\n\n` +
           `Підписку прострочено, і скутер не повернуто. Ваш статус змінено на "Боржник".\n\n` +
-          `Борг без пені: <b>${baseAmount} грн</b>\n` +
-          `Борг з пенею: <b>${debtAmount} грн</b> (${baseAmount} + ${penalty} пеня по ${DEBT_PENALTY_PER_DAY} грн/день)\n\n` +
+          `Оренда за наступні 7 днів: <b>${baseAmount} грн</b>\n` +
+          `Пеня (${overdueDays} ${dayWord} × ${DEBT_PENALTY_PER_DAY} грн): <b>${penalty} грн</b>\n` +
+          `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
           `Пеня нараховується щодня, доки борг не погашено. Оплатіть онлайн у боті або зверніться до адміністратора, щоб зупинити нарахування.`
         );
       }

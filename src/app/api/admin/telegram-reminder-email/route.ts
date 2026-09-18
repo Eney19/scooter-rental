@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
+import { sendEmailChecked } from "@/lib/email";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
 
 // Розсилка курʼєрам, у яких є email, але немає telegram_chat_id — з
@@ -27,20 +26,20 @@ export async function POST() {
     for (const courier of couriers || []) {
       if (!courier.email) continue;
       const botLink = `https://t.me/${BOT_USERNAME}?start=${courier.id}`;
-      try {
-        await resend.emails.send({
-          from: "PowerDrive <onboarding@resend.dev>",
-          to: courier.email,
-          subject: "Підключіть Telegram-бот PowerDrive",
-          html:
-            `<p>Вітаємо, ${courier.full_name}!</p>` +
-            `<p>Підключіть наш Telegram-бот PowerDrive, щоб отримувати нагадування про оплату оренди, перевіряти статус підписки та швидко оплачувати онлайн.</p>` +
-            `<p><a href="${botLink}">Натисніть тут, щоб підключитися</a></p>` +
-            `<p>Це займає кілька секунд — просто натисніть кнопку "Start" у Telegram.</p>`,
-        });
+      const { ok, error: sendError } = await sendEmailChecked({
+        from: "PowerDrive <onboarding@resend.dev>",
+        to: courier.email,
+        subject: "Підключіть Telegram-бот PowerDrive",
+        html:
+          `<p>Вітаємо, ${courier.full_name}!</p>` +
+          `<p>Підключіть наш Telegram-бот PowerDrive, щоб отримувати нагадування про оплату оренди, перевіряти статус підписки та швидко оплачувати онлайн.</p>` +
+          `<p><a href="${botLink}">Натисніть тут, щоб підключитися</a></p>` +
+          `<p>Це займає кілька секунд — просто натисніть кнопку "Start" у Telegram.</p>`,
+      });
+      if (ok) {
         sent++;
-      } catch (e) {
-        console.error("telegram-reminder-email: send failed for", courier.id, e);
+      } else {
+        console.error("telegram-reminder-email: send failed for", courier.id, sendError);
         failed++;
       }
     }

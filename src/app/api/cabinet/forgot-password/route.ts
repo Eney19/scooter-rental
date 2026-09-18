@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateResetToken } from "@/lib/password";
+import { sendEmailChecked } from "@/lib/email";
+import { sendTelegramMessage } from "@/lib/telegram";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
+const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,19 +42,32 @@ export async function POST(req: NextRequest) {
 
       const resetUrl = `${APP_URL}/cabinet/reset-password?courierId=${courier.id}&token=${token}`;
 
-      try {
-        await resend.emails.send({
-          from: "PowerDrive <onboarding@resend.dev>",
-          to: email,
-          subject: "Відновлення паролю — PowerDrive",
-          html:
-            `<p>Привіт, ${courier.full_name}!</p>` +
-            `<p>Хтось (сподіваємось, ви) запросив скидання паролю до особистого кабінету PowerDrive.</p>` +
-            `<p><a href="${resetUrl}">Встановити новий пароль</a></p>` +
-            `<p>Посилання дійсне 1 годину. Якщо це були не ви — просто проігноруйте цей лист.</p>`,
-        });
-      } catch (emailErr) {
-        console.error("forgot-password email error:", emailErr);
+      const { ok: emailOk, error: emailError } = await sendEmailChecked({
+        from: "PowerDrive <onboarding@resend.dev>",
+        to: email,
+        subject: "Відновлення паролю — PowerDrive",
+        html:
+          `<p>Привіт, ${courier.full_name}!</p>` +
+          `<p>Хтось (сподіваємось, ви) запросив скидання паролю до особистого кабінету PowerDrive.</p>` +
+          `<p><a href="${resetUrl}">Встановити новий пароль</a></p>` +
+          `<p>Посилання дійсне 1 годину. Якщо це були не ви — просто проігноруйте цей лист.</p>`,
+      });
+
+      if (!emailOk) {
+        console.error("forgot-password: email send failed", { courierId: courier.id, email, emailError });
+        if (ADMIN_CHAT_ID) {
+          try {
+            await sendTelegramMessage(
+              Number(ADMIN_CHAT_ID),
+              `⚠️ <b>Не вдалося надіслати лист для скидання паролю</b>\n\n` +
+              `Кур'єр: ${courier.full_name}\n` +
+              `Email: ${email}\n` +
+              `Помилка: ${emailError}`
+            );
+          } catch (alertErr) {
+            console.error("forgot-password: admin alert failed", alertErr);
+          }
+        }
       }
     }
 

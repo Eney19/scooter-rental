@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
+import { sendEmailChecked } from "@/lib/email";
 import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
 import { getBatteryLabels } from "@/lib/pricing";
 
@@ -11,7 +11,6 @@ import { getBatteryLabels } from "@/lib/pricing";
 // 60с — максимум, доступний на Hobby.
 export const maxDuration = 60;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FOP_EMAIL = "anteyfgh41@gmail.com";
 
 const FOP_DATA = {
@@ -302,31 +301,29 @@ export async function POST(req: NextRequest) {
     }
 
     if (courierEmail) {
-      try {
-        await resend.emails.send({
-          from: "ScooterRental <onboarding@resend.dev>",
-          to: courierEmail,
-          subject: "Договір підписано",
-          html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
-        });
-      } catch (emailErr) {
-        console.error("Email error", emailErr);
+      const { ok: courierEmailOk, error: courierEmailError } = await sendEmailChecked({
+        from: "ScooterRental <onboarding@resend.dev>",
+        to: courierEmail,
+        subject: "Договір підписано",
+        html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
+      });
+      if (!courierEmailOk) {
+        console.error("sign-contract: courier email failed", courierId, courierEmailError);
       }
     }
 
     // Копія підписаного договору адміну — на email (вкладенням) і в Telegram
-    try {
-      await resend.emails.send({
-        from: "ScooterRental <onboarding@resend.dev>",
-        to: FOP_EMAIL,
-        subject: "Новий підписаний договір №" + contractNumber,
-        html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + courierPhone + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
-        attachments: [
-          { filename: "contract-" + contractNumber + ".pdf", content: signedPdfBuffer.toString("base64") },
-        ],
-      });
-    } catch (adminEmailErr) {
-      console.error("Admin email error", adminEmailErr);
+    const { ok: adminEmailOk, error: adminEmailError } = await sendEmailChecked({
+      from: "ScooterRental <onboarding@resend.dev>",
+      to: FOP_EMAIL,
+      subject: "Новий підписаний договір №" + contractNumber,
+      html: "<h2>Договір №" + contractNumber + "</h2><p>" + courierName + " | " + courierPhone + " | " + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "</p><a href='" + pdfUrl + "'>Завантажити</a>",
+      attachments: [
+        { filename: "contract-" + contractNumber + ".pdf", content: signedPdfBuffer.toString("base64") },
+      ],
+    });
+    if (!adminEmailOk) {
+      console.error("sign-contract: admin email failed", contractNumber, adminEmailError);
     }
 
     try {

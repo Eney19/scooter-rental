@@ -3,6 +3,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendEmailChecked } from "@/lib/email";
+import { getAdminChatIds } from "@/lib/telegram";
 import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
 import { getBatteryLabels } from "@/lib/pricing";
 
@@ -328,33 +329,35 @@ export async function POST(req: NextRequest) {
 
     try {
       const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-      const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
-      if (BOT_TOKEN && ADMIN_CHAT_ID) {
-        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: ADMIN_CHAT_ID,
-            document: pdfUrl,
-            caption:
-              "📄 Новий підписаний договір №" + contractNumber + "\n" +
-              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel,
-          }),
-        });
+      const adminChatIds = getAdminChatIds();
+      if (BOT_TOKEN && adminChatIds.length > 0) {
+        for (const chatId of adminChatIds) {
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              document: pdfUrl,
+              caption:
+                "📄 Новий підписаний договір №" + contractNumber + "\n" +
+                courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel,
+            }),
+          });
 
-        // Окреме сповіщення про нову реєстрацію (очікує оплату)
-        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: ADMIN_CHAT_ID,
-            parse_mode: "HTML",
-            text:
-              "🆕 <b>Новий кур'єр зареєструвався</b>\n\n" +
-              courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "\n\n" +
-              "⏳ Очікує оплати (онлайн або готівкою)",
-          }),
-        });
+          // Окреме сповіщення про нову реєстрацію (очікує оплату)
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              parse_mode: "HTML",
+              text:
+                "🆕 <b>Новий кур'єр зареєструвався</b>\n\n" +
+                courierName + "\n" + courierPhone + "\n" + city + " | " + price + " грн/тиж" + batterySuffix + " | " + scooterModel + "\n\n" +
+                "⏳ Очікує оплати (онлайн або готівкою)",
+            }),
+          });
+        }
       }
     } catch (tgErr) {
       console.error("Admin telegram error", tgErr);

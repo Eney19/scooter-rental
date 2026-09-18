@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 async function sendMessage(chatId: number | string, text: string) {
@@ -94,23 +94,25 @@ export async function GET(req: NextRequest) {
         reminded++;
       }
 
-      // Сповіщення адміну з кнопкою "Позначити готівку"
-      if (ADMIN_CHAT_ID) {
+      // Сповіщення адміну(ам) з кнопкою "Позначити готівку"
+      {
         // callback_data: cash_COURIER_ID
         const callbackData = `cash_${sub.courier_id}`;
 
-        await sendMessageWithButton(
-          ADMIN_CHAT_ID,
-          `🔔 <b>Нагадування про оплату</b>\n\n` +
-          `Курʼєр: <b>${courier.full_name}</b>\n` +
-          `Телефон: ${courier.phone}\n` +
-          `Місто: ${courier.city || "—"}\n` +
-          `Підписка до: <b>${expiresDate}</b>\n` +
-          `Сума: <b>${sub.amount} грн</b>\n\n` +
-          `${courier.telegram_chat_id ? "✅ Нагадування надіслано курʼєру" : "⚠️ Курʼєр не підключив Telegram"}`,
-          "💵 Позначити оплату готівкою",
-          callbackData
-        );
+        for (const chatId of getAdminChatIds()) {
+          await sendMessageWithButton(
+            chatId,
+            `🔔 <b>Нагадування про оплату</b>\n\n` +
+            `Курʼєр: <b>${courier.full_name}</b>\n` +
+            `Телефон: ${courier.phone}\n` +
+            `Місто: ${courier.city || "—"}\n` +
+            `Підписка до: <b>${expiresDate}</b>\n` +
+            `Сума: <b>${sub.amount} грн</b>\n\n` +
+            `${courier.telegram_chat_id ? "✅ Нагадування надіслано курʼєру" : "⚠️ Курʼєр не підключив Telegram"}`,
+            "💵 Позначити оплату готівкою",
+            callbackData
+          );
+        }
       }
     }
 

@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateResetToken } from "@/lib/password";
 import { sendEmailChecked } from "@/lib/email";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { sendAdminMessage } from "@/lib/telegram";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,18 +54,15 @@ export async function POST(req: NextRequest) {
 
       if (!emailOk) {
         console.error("forgot-password: email send failed", { courierId: courier.id, email, emailError });
-        if (ADMIN_CHAT_ID) {
-          try {
-            await sendTelegramMessage(
-              Number(ADMIN_CHAT_ID),
-              `⚠️ <b>Не вдалося надіслати лист для скидання паролю</b>\n\n` +
-              `Кур'єр: ${courier.full_name}\n` +
-              `Email: ${email}\n` +
-              `Помилка: ${emailError}`
-            );
-          } catch (alertErr) {
-            console.error("forgot-password: admin alert failed", alertErr);
-          }
+        try {
+          await sendAdminMessage(
+            `⚠️ <b>Не вдалося надіслати лист для скидання паролю</b>\n\n` +
+            `Кур'єр: ${courier.full_name}\n` +
+            `Email: ${email}\n` +
+            `Помилка: ${emailError}`
+          );
+        } catch (alertErr) {
+          console.error("forgot-password: admin alert failed", alertErr);
         }
       }
     }

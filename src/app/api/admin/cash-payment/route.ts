@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
+import { getAdminChatIds } from "@/lib/telegram";
 
 export async function POST(req: NextRequest) {
   try {
@@ -102,23 +103,25 @@ export async function POST(req: NextRequest) {
     });
 
     if (!activated) {
-      const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
+      const adminChatIds = getAdminChatIds();
       const BOT_TOKEN_FOR_ALERT = process.env.TELEGRAM_BOT_TOKEN;
-      if (ADMIN_CHAT_ID && BOT_TOKEN_FOR_ALERT) {
+      if (adminChatIds.length > 0 && BOT_TOKEN_FOR_ALERT) {
         try {
-          await fetch(`https://api.telegram.org/bot${BOT_TOKEN_FOR_ALERT}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: ADMIN_CHAT_ID,
-              parse_mode: "HTML",
-              text:
-                `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
-                `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
-                `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
-                `Перевірте вручну в адмінці.`,
-            }),
-          });
+          for (const chatId of adminChatIds) {
+            await fetch(`https://api.telegram.org/bot${BOT_TOKEN_FOR_ALERT}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                parse_mode: "HTML",
+                text:
+                  `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
+                  `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
+                  `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
+                  `Перевірте вручну в адмінці.`,
+              }),
+            });
+          }
         } catch (e) {
           console.error("admin cash-payment: failed to notify admin about activation failure", e);
         }

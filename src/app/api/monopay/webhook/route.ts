@@ -3,6 +3,7 @@ import { createPublicKey, createVerify } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { nextExpiryFrom } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
+import { getAdminChatIds } from "@/lib/telegram";
 
 let cachedPubKey: string | null = null;
 
@@ -147,25 +148,27 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Сповіщення адміну про онлайн-оплату
+      // Сповіщення адміну(ам) про онлайн-оплату
       try {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-        const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
-        if (BOT_TOKEN && ADMIN_CHAT_ID) {
-          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: ADMIN_CHAT_ID,
-              parse_mode: "HTML",
-              text:
-                "✅ <b>Оплата отримана онлайн</b>\n\n" +
-                (courierRow?.full_name || courierId) + "\n" +
-                (courierRow?.phone || "") + " | " + (courierRow?.city || "") + "\n" +
-                "Сума: <b>" + amountUAH + " грн</b>\n" +
-                "Метод: 💳 Онлайн (Monobank)",
-            }),
-          });
+        const adminChatIds = getAdminChatIds();
+        if (BOT_TOKEN && adminChatIds.length > 0) {
+          for (const chatId of adminChatIds) {
+            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                parse_mode: "HTML",
+                text:
+                  "✅ <b>Оплата отримана онлайн</b>\n\n" +
+                  (courierRow?.full_name || courierId) + "\n" +
+                  (courierRow?.phone || "") + " | " + (courierRow?.city || "") + "\n" +
+                  "Сума: <b>" + amountUAH + " грн</b>\n" +
+                  "Метод: 💳 Онлайн (Monobank)",
+              }),
+            });
+          }
         }
       } catch (tgErr) {
         console.error("Admin telegram notify error:", tgErr);
@@ -199,24 +202,26 @@ export async function POST(req: NextRequest) {
 
         try {
           const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-          const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID;
-          if (BOT_TOKEN && ADMIN_CHAT_ID) {
+          const adminChatIds = getAdminChatIds();
+          if (BOT_TOKEN && adminChatIds.length > 0) {
             const now = new Date();
             const dateStr = now.toLocaleDateString("uk-UA");
             const timeStr = now.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
-            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: ADMIN_CHAT_ID,
-                parse_mode: "HTML",
-                text:
-                  "❌ <b>Оплату відхилено</b>\n\n" +
-                  (failedCourier?.full_name || failedCourierId) + "\n" +
-                  `${dateStr} о ${timeStr}` +
-                  (failureReason ? `\nПричина: ${failureReason}` : ""),
-              }),
-            });
+            for (const chatId of adminChatIds) {
+              await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  parse_mode: "HTML",
+                  text:
+                    "❌ <b>Оплату відхилено</b>\n\n" +
+                    (failedCourier?.full_name || failedCourierId) + "\n" +
+                    `${dateStr} о ${timeStr}` +
+                    (failureReason ? `\nПричина: ${failureReason}` : ""),
+                }),
+              });
+            }
           }
         } catch (tgErr) {
           console.error("Admin telegram notify (failure) error:", tgErr);

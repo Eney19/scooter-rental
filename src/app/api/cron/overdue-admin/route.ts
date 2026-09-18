@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, calculatePenalty, totalWithPenalty } from "@/lib/pricing";
+import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 async function sendMessageWithButton(
@@ -73,21 +73,24 @@ export async function GET(req: NextRequest) {
       const penalty = calculatePenalty(late);
       const total = totalWithPenalty(baseAmount, late);
 
-      if (ADMIN_CHAT_ID) {
+      const adminChatIds = getAdminChatIds();
+      if (adminChatIds.length > 0) {
         const callbackData = `cash_${sub.courier_id}`;
-        await sendMessageWithButton(
-          ADMIN_CHAT_ID,
-          `🔴 <b>Прострочена оплата (день ${late})</b>\n\n` +
-          `Курʼєр: <b>${courier.full_name}</b>\n` +
-          `Телефон: ${courier.phone}\n` +
-          `Місто: ${courier.city || "—"}\n` +
-          `Прострочено з: <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>\n` +
-          `Сума з пенею: <b>${total} грн</b> (${baseAmount} + ${penalty})\n\n` +
-          `${late === 3 ? "🚫 Курʼєру надіслано повідомлення про блокування\n" : ""}` +
-          `${courier.telegram_chat_id ? "✅ Курʼєр підключив Telegram" : "⚠️ Курʼєр не підключив Telegram"}`,
-          "💵 Позначити оплату готівкою",
-          callbackData
-        );
+        for (const chatId of adminChatIds) {
+          await sendMessageWithButton(
+            chatId,
+            `🔴 <b>Прострочена оплата (день ${late})</b>\n\n` +
+            `Курʼєр: <b>${courier.full_name}</b>\n` +
+            `Телефон: ${courier.phone}\n` +
+            `Місто: ${courier.city || "—"}\n` +
+            `Прострочено з: <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>\n` +
+            `Сума з пенею: <b>${total} грн</b> (${baseAmount} + ${penalty})\n\n` +
+            `${late === 3 ? "🚫 Курʼєру надіслано повідомлення про блокування\n" : ""}` +
+            `${courier.telegram_chat_id ? "✅ Курʼєр підключив Telegram" : "⚠️ Курʼєр не підключив Telegram"}`,
+            "💵 Позначити оплату готівкою",
+            callbackData
+          );
+        }
         reported++;
       }
     }

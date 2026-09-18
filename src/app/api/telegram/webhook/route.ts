@@ -3,9 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
+import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 async function sendMessage(chatId: number, text: string, options?: object) {
@@ -55,10 +55,10 @@ export async function POST(req: NextRequest) {
     if (update.callback_query) {
       const query = update.callback_query;
       const callbackData: string = query.data || "";
-      const adminChatId = parseInt(ADMIN_CHAT_ID);
+      const adminChatIds = getAdminChatIds();
 
-      // Перевіряємо що натиснув саме адмін
-      if (query.from.id !== adminChatId) {
+      // Перевіряємо що натиснув саме адмін (будь-хто зі списку)
+      if (!adminChatIds.includes(query.from.id)) {
         await answerCallbackQuery(query.id, "❌ Тільки адмін може позначати платежі");
         return NextResponse.json({ ok: true });
       }
@@ -154,13 +154,15 @@ export async function POST(req: NextRequest) {
         });
 
         if (!activated) {
-          await sendMessage(
-            parseInt(ADMIN_CHAT_ID),
-            `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
-            `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
-            `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
-            `Перевірте вручну в адмінці.`
-          );
+          for (const chatId of getAdminChatIds()) {
+            await sendMessage(
+              chatId,
+              `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
+              `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
+              `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
+              `Перевірте вручну в адмінці.`
+            );
+          }
         }
 
         // Так само як в інших платіжних обробниках: новий період оренди
@@ -228,6 +230,19 @@ export async function POST(req: NextRequest) {
     const chatId = message.chat.id;
     const text = message.text || "";
     const phone = message.contact?.phone_number;
+
+    // Команда /id — самообслуговування: показує chat_id цього чату, щоб
+    // додати нову людину до списку адміністраторів (ADMIN_TELEGRAM_CHAT_ID)
+    // без порпання в логах чи API Telegram.
+    if (text.startsWith("/id")) {
+      const username = message.from?.username ? `@${message.from.username}` : "—";
+      await sendMessage(
+        chatId,
+        `🆔 Ваш chat_id: <code>${chatId}</code>\nUsername: ${username}\n\n` +
+        `Щоб отримувати адмінські сповіщення PowerDrive, цей chat_id треба додати в змінну середовища ADMIN_TELEGRAM_CHAT_ID (через кому, якщо їх кілька).`
+      );
+      return NextResponse.json({ ok: true });
+    }
 
     // Команда /start — з диплінка (t.me/<bot>?start=<courierId>) підключаємо
     // одразу за courierId, без ручного ділення номером телефону. Якщо

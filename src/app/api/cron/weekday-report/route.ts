@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice } from "@/lib/pricing";
+import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const WEEKDAY_NAMES = ["неділя", "понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота"];
 
-async function sendMessage(chatId: string, text: string) {
+async function sendMessage(chatId: number | string, text: string) {
   await fetch(`${API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,8 +70,8 @@ export async function GET(req: NextRequest) {
       text += `Немає активних кур'єрів на сьогодні\n`;
     }
 
-    if (ADMIN_CHAT_ID) {
-      await sendMessage(ADMIN_CHAT_ID, text);
+    for (const chatId of getAdminChatIds()) {
+      await sendMessage(chatId, text);
     }
 
     console.log(`Cron weekday-report: lutsk=${lutsk.length}, lviv=${lviv.length}`);

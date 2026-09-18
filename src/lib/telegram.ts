@@ -1,6 +1,23 @@
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+// Список chat_id адміністраторів, яким ідуть службові сповіщення.
+// ADMIN_TELEGRAM_CHAT_ID підтримує кілька id через кому
+// ("111,222"), щоб сповіщення отримувала більш ніж одна людина.
+export function getAdminChatIds(): number[] {
+  const raw = process.env.ADMIN_TELEGRAM_CHAT_ID || "";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
+}
+
+export async function sendAdminMessage(text: string) {
+  await Promise.all(getAdminChatIds().map((id) => sendTelegramMessage(id, text)));
+}
+
 export async function sendTelegramMessage(chatId: number, text: string) {
   const res = await fetch(`${API}/sendMessage`, {
     method: "POST",

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { collectSheetDebtors, CityConfig } from "@/lib/debtors-report";
+import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const SHEET_CITIES: CityConfig[] = [
@@ -12,7 +12,7 @@ const SHEET_CITIES: CityConfig[] = [
   { city: "Львів", spreadsheetId: process.env.GOOGLE_SHEET_ID_LVIV! },
 ];
 
-async function sendMessage(chatId: string, text: string) {
+async function sendMessage(chatId: number | string, text: string) {
   await fetch(`${API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -121,7 +121,9 @@ export async function GET(req: NextRequest) {
 
     reportText += `\n💰 <b>Всього активних:</b> ${paidList.length} з ${(debtors || []).length}`;
 
-    await sendMessage(ADMIN_CHAT_ID, reportText);
+    for (const chatId of getAdminChatIds()) {
+      await sendMessage(chatId, reportText);
+    }
 
     console.log(
       `Daily report sent: ${debtorList.length} app debtors, ${sheetDebtors.length} sheet debtors, ${paidList.length} paid`

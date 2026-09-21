@@ -43,15 +43,30 @@ export async function activateCourier(
 ): Promise<{ ok: boolean; error: string | null }> {
   const payload = { status: "active", ...extra };
 
-  let { error } = await supabaseAdmin.from("couriers").update(payload).eq("id", courierId);
-  if (error) {
-    console.error("activateCourier: update failed, retrying once", error, "courierId:", courierId);
+  // ВАЖЛИВО: одного лише `error === null` недостатньо. Якщо `.eq("id", courierId)`
+  // з якоїсь причини не знайде жодного рядка (наприклад, courierId вже не існує),
+  // Supabase поверне success БЕЗ помилки — оновлених рядків просто буде 0, і раніше
+  // це виглядало як успішна активація, хоча couriers.status ніхто не міняв.
+  // Тому просимо `.select("id")` і перевіряємо, що рядок справді знайдено й оновлено.
+  const attempt = async () =>
+    supabaseAdmin.from("couriers").update(payload).eq("id", courierId).select("id");
+
+  let { data, error } = await attempt();
+  if (error || !data || data.length === 0) {
+    console.error(
+      "activateCourier: update failed or matched 0 rows, retrying once",
+      error, "rowsMatched:", data?.length ?? 0, "courierId:", courierId
+    );
     await new Promise((resolve) => setTimeout(resolve, 800));
-    ({ error } = await supabaseAdmin.from("couriers").update(payload).eq("id", courierId));
+    ({ data, error } = await attempt());
   }
   if (error) {
     console.error("activateCourier: update failed after retry", error, "courierId:", courierId);
     return { ok: false, error: error.message };
+  }
+  if (!data || data.length === 0) {
+    console.error("activateCourier: update matched 0 rows after retry", "courierId:", courierId);
+    return { ok: false, error: `Рядок кур'єра з id=${courierId} не знайдено при оновленні (0 рядків оновлено)` };
   }
   return { ok: true, error: null };
 }

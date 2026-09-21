@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
+import { normalizePhone } from "@/lib/phone";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest) {
     if (!rawPhone || !code) {
       return NextResponse.json({ success: false, error: "Відсутні дані" }, { status: 400 });
     }
-    const phone = (rawPhone.startsWith("+") ? rawPhone : "+" + rawPhone).trim();
+    const phone = normalizePhone(rawPhone);
     const trimmedCode = String(code).trim();
 
     const { data: courier, error: lookupError } = await supabaseAdmin

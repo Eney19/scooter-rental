@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { normalizePhone } from "@/lib/phone";
 
 // Надсилання SMS-коду для входу в особистий кабінет. На відміну від
 // реєстраційного /api/send-sms, тут courierId ще невідомий — його визначаємо
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     if (!rawPhone) {
       return NextResponse.json({ success: false, error: "Телефон обов'язковий" }, { status: 400 });
     }
-    const phone = (rawPhone.startsWith("+") ? rawPhone : "+" + rawPhone).trim();
+    const phone = normalizePhone(rawPhone);
 
     const { data: courier, error: lookupError } = await supabaseAdmin
       .from("couriers")

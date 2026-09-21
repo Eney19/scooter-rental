@@ -4,6 +4,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendEmailChecked } from "@/lib/email";
 import { getAdminChatIds } from "@/lib/telegram";
+import { normalizePhone } from "@/lib/phone";
 import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
 import { getBatteryLabels } from "@/lib/pricing";
 
@@ -288,7 +289,7 @@ export async function POST(req: NextRequest) {
     // запиту вище — шаблон, PDF, Storage, апдейт картки — не "спалювало"
     // правильний код без фактичного підписання договору).
     try {
-      const normalizedPhone = courierPhone.startsWith("+") ? courierPhone : "+" + courierPhone;
+      const normalizedPhone = normalizePhone(courierPhone);
       const { error: smsMarkError } = await supabaseAdmin
         .from("signing_logs")
         .update({ used: true, courier_id: courierId })

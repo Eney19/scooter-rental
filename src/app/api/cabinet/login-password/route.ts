@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createSessionToken, CABINET_COOKIE_NAME, CABINET_COOKIE_MAX_AGE_SECONDS } from "@/lib/cabinet-session";
 import { verifyPassword } from "@/lib/password";
+import { normalizePhone } from "@/lib/phone";
 
 // Вхід за паролем: ідентифікатор — номер телефону або email.
 export async function POST(req: NextRequest) {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
     }
     const identifier = String(rawIdentifier).trim();
     const isEmail = identifier.includes("@");
-    const phone = !isEmail ? (identifier.startsWith("+") ? identifier : "+" + identifier) : null;
+    const phone = !isEmail ? normalizePhone(identifier) : null;
 
     const query = supabaseAdmin
       .from("couriers")

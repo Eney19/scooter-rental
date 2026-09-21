@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { normalizePhone } from "@/lib/phone";
 
 export async function POST(req: NextRequest) {
   try {
     const { phone: rawPhone, code, courierId } = await req.json();
-    const phone = (rawPhone.startsWith("+") ? rawPhone : "+" + rawPhone).trim();
+    const phone = normalizePhone(rawPhone);
     const trimmedCode = code?.trim();
 
     console.log("verify-sms phone:", phone, "code:", code);

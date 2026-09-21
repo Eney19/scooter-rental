@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { normalizePhone } from "@/lib/phone";
 
 export async function POST(req: NextRequest) {
   try {
     const { phone: rawPhone } = await req.json();
-    const phone = rawPhone.startsWith("+") ? rawPhone : "+" + rawPhone;
+    const phone = normalizePhone(rawPhone);
 
     if (!phone) return NextResponse.json({ success: false, error: "Телефон обов'язковий" });
 

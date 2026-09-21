@@ -4,6 +4,7 @@ import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBat
 import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
+import { normalizePhone } from "@/lib/phone";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -299,7 +300,7 @@ export async function POST(req: NextRequest) {
 
     // Отримали контакт
     if (phone) {
-      const normalizedPhone = phone.startsWith("+") ? phone : "+" + phone;
+      const normalizedPhone = normalizePhone(phone);
 
       const { data: courier } = await supabaseAdmin
         .from("couriers")

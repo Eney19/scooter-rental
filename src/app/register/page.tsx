@@ -3,6 +3,7 @@ import { useState, useRef, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { BATTERY_OPTIONS, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { normalizePhone } from "@/lib/phone";
 import SignaturePad from "signature_pad";
 
 type Step = 1 | 2 | 3;
@@ -85,8 +86,19 @@ export default function RegisterPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
       setError("Вкажіть коректний email"); return;
     }
+    // Приводимо до єдиного формату +380XXXXXXXXX — інакше номер типу
+    // "0678805016" зберігався б як є, реєстрація не знаходила б існуючий
+    // запис при повторному вході, а SMS-код йшов би в нікуди.
+    const phone = normalizePhone(form.phone);
+    if (!/^\+380\d{9}$/.test(phone)) {
+      setError("Введіть коректний номер телефону у форматі +380XXXXXXXXX");
+      return;
+    }
+    if (phone !== form.phone) {
+      setForm((p) => ({ ...p, phone }));
+    }
+
     setLoading(true);
-    const phone = form.phone.trim();
 
     // Якщо цим номером уже починали реєстрацію, але не завершили (не підписали договір) —
     // оновлюємо той самий запис замість створення дубля, і рахуємо спробу.

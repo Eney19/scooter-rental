@@ -32,6 +32,18 @@ const PAYMENT_STATUS: Record<string, { label: string; color: string }> = {
   refunded: { label: "Повернуто",  color: "bg-slate-100 text-slate-500" },
 };
 
+// Якщо кур'єр створив інвойс, але так і не завершив оплату на сторінці
+// Monobank (не ввів картку/закрив вкладку), вебхук ніколи не приходить, і
+// рядок навічно лишається "pending". За пару годин це вже майже напевно не
+// "оплата в процесі", а покинута спроба — тож показуємо її окремим,
+// приглушеним лейблом, щоб було видно з першого погляду, не лізучи в базу.
+const STALE_PENDING_HOURS = 2;
+function isStalePending(p: Payment): boolean {
+  if ((p.status || "pending") !== "pending") return false;
+  const ageMs = Date.now() - new Date(p.created_at).getTime();
+  return ageMs > STALE_PENDING_HOURS * 60 * 60 * 1000;
+}
+
 const SUB_STATUS: Record<string, { label: string; color: string }> = {
   active:   { label: "Активна",    color: "bg-green-100 text-green-700" },
   paused:   { label: "Призупинена",color: "bg-yellow-100 text-yellow-700" },
@@ -232,9 +244,18 @@ export default function AdminPaymentsPage() {
                       <td className="px-4 py-3 text-slate-600">{p.courier?.city || "—"}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{p.amount.toLocaleString("uk-UA")} грн</td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${PAYMENT_STATUS[p.status || "pending"]?.color || "bg-slate-100 text-slate-500"}`}>
-                          {PAYMENT_STATUS[p.status || "pending"]?.label || "Очікує"}
-                        </span>
+                        {isStalePending(p) ? (
+                          <span
+                            className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700"
+                            title={`Створено ${new Date(p.created_at).toLocaleString("uk-UA")} і досі не оплачено — ймовірно, кур'єр не завершив оплату`}
+                          >
+                            ⏳ Застаріла
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${PAYMENT_STATUS[p.status || "pending"]?.color || "bg-slate-100 text-slate-500"}`}>
+                            {PAYMENT_STATUS[p.status || "pending"]?.label || "Очікує"}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}</td>
                       <td className="px-4 py-3 text-slate-400 text-xs">

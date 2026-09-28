@@ -508,6 +508,7 @@ export default function AdminCouriersPage() {
           <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700">Скутери</a>
           <a href="/admin/payments" className="text-slate-500 hover:text-slate-700">Платежі</a>
           <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700">Календар</a>
+          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700">Черга</a>
         </nav>
         <button
           onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}

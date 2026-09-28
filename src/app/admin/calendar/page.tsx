@@ -177,6 +177,7 @@ export default function AdminCalendarPage() {
           <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700">Кур'єри</a>
           <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700">Скутери</a>
           <a href="/admin/payments" className="text-slate-500 hover:text-slate-700">Платежі</a>
+          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700">Черга</a>
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1">Календар</span>
         </nav>
         <button

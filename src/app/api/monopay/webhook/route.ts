@@ -71,13 +71,32 @@ export async function POST(req: NextRequest) {
       // success не той рядок і подовжити підписку вдруге за одну реальну
       // оплату. Якщо збігу немає (вже оброблено раніше або рядка не існує) —
       // це повторна доставка того самого webhook, виходимо без побічних дій.
-      const { data: updatedPayment } = await supabaseAdmin
+      //
+      // ВАЖЛИВО: якщо курʼєр кілька разів поспіль тисне "Оплатити" (кожен
+      // клік створює окремий pending-рядок з унікальним reference),
+      // Monobank іноді присилає success-вебхук з ОДНАКОВИМ invoiceId для
+      // кількох таких references — реальне списання одне, але без захисту
+      // кожен виклик позначав би success ще один рядок (саме так зʼявилось
+      // по 4-6 фантомних "Оплачено" на одного кур'єра при одній реальній
+      // оплаті). Унікальний індекс payments_success_wayforpay_id_uniq не
+      // дає двом рядкам мати той самий invoiceId зі статусом success — тож
+      // ловимо порушення унікальності (23505) як безпечний дубль.
+      const { data: updatedPayment, error: updateError } = await supabaseAdmin
         .from("payments")
         .update({ status: "success", wayforpay_id: invoiceId })
         .eq("wayforpay_id", reference)
         .eq("status", "pending")
         .select("id")
         .maybeSingle();
+
+      if (updateError) {
+        if (updateError.code === "23505") {
+          console.log(`Monobank webhook: invoiceId=${invoiceId} already recorded on another payment row — skipping duplicate (reference=${reference}).`);
+          return NextResponse.json({ ok: true });
+        }
+        console.error("Monobank webhook: failed to mark payment success", updateError, "reference:", reference);
+        return NextResponse.json({ ok: true });
+      }
 
       if (!updatedPayment) {
         console.log(`Monobank webhook: reference=${reference} already processed or not found — skipping duplicate.`);

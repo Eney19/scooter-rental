@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
       .eq("courier_id", courierId)
       .eq("status", "active")
       .order("expires_at", { ascending: false })
-     .single();
+      .limit(1)
+      .maybeSingle();
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
     // Завдаток за скутер стягується лише при першій оплаті кур'єра (як і в
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
     const paymentBreakdown = paymentParts.length > 1 ? paymentParts.join(" + ") : null;
 
-    await supabaseAdmin.from("payments").insert({
+    const { error: paymentInsertError } = await supabaseAdmin.from("payments").insert({
       courier_id: courierId,
       amount,
       deposit,
@@ -63,32 +64,54 @@ export async function POST(req: NextRequest) {
       created_at: now,
     });
 
+    if (paymentInsertError) {
+      // КРИТИЧНО: раніше цей insert ніхто не перевіряв — якщо він падав,
+      // код все одно доходив до кінця і повертав success:true, тож адмін
+      // бачив "Готівковий платіж записано", а в базі не з'являлось НІЧОГО
+      // (саме це сталося з Чорнобривцем Андрієм Олексійовичем). Тепер при
+      // збої одразу зупиняємось і чесно повідомляємо адміну про помилку.
+      console.error("admin cash-payment: payments insert failed", paymentInsertError, "courierId:", courierId);
+      return NextResponse.json(
+        { success: false, error: `Не вдалося записати платіж: ${paymentInsertError.message}` },
+        { status: 500 }
+      );
+    }
+
     const { data: existingSub } = await supabaseAdmin
       .from("subscriptions")
       .select("id, expires_at")
       .eq("courier_id", courierId)
       .eq("status", "active")
-      .single();
+      .maybeSingle();
 
     // Той самий принцип, що і для monopay-вебхука: продовжуємо від поточного
     // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від
     // вказаної дати оплати (paidAtDate, а не обов'язково "зараз").
     const expiresAt = nextExpiryFrom(existingSub?.expires_at, paidAtDate);
 
+    let subscriptionError = null;
     if (existingSub) {
-      await supabaseAdmin
+      ({ error: subscriptionError } = await supabaseAdmin
         .from("subscriptions")
         .update({ expires_at: expiresAt.toISOString(), paid_at: now, amount })
-        .eq("id", existingSub.id);
+        .eq("id", existingSub.id));
     } else {
-      await supabaseAdmin.from("subscriptions").insert({
+      ({ error: subscriptionError } = await supabaseAdmin.from("subscriptions").insert({
         courier_id: courierId,
         amount,
         status: "active",
         expires_at: expiresAt.toISOString(),
         paid_at: now,
         wayforpay_id: `cash_${Date.now()}`,
-      });
+      }));
+    }
+
+    if (subscriptionError) {
+      // Платіж уже записано (payments insert вище пройшов) — тут не
+      // зупиняємось повністю (гроші кур'єр реально приніс), але обов'язково
+      // повідомляємо адміна, щоб підписку/статус поправили вручну, а не
+      // мовчки лишали неузгоджений стан.
+      console.error("admin cash-payment: subscription upsert failed", subscriptionError, "courierId:", courierId);
     }
 
     // Фіксуємо дату старту підписки лише при фактичному новому взятті скутера
@@ -102,7 +125,7 @@ export async function POST(req: NextRequest) {
       ...(!existingSub ? { subscription_start_date: now } : {}),
     });
 
-    if (!activated) {
+    if (!activated || subscriptionError) {
       const adminChatIds = getAdminChatIds();
       const BOT_TOKEN_FOR_ALERT = process.env.TELEGRAM_BOT_TOKEN;
       if (adminChatIds.length > 0 && BOT_TOKEN_FOR_ALERT) {
@@ -115,10 +138,12 @@ export async function POST(req: NextRequest) {
                 chat_id: chatId,
                 parse_mode: "HTML",
                 text:
-                  `⚠️ <b>Платіж записано, але статус кур'єра не оновився</b>\n\n` +
+                  `⚠️ <b>Готівковий платіж записано не повністю</b>\n\n` +
                   `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
-                  `Платіж і підписка (${amount} грн) записані успішно, але couriers.status не вдалось виставити "active": ${activateError}.\n\n` +
-                  `Перевірте вручну в адмінці.`,
+                  `Платіж (${amount} грн) записано.\n` +
+                  (subscriptionError ? `Підписку не вдалось оновити: ${subscriptionError.message}.\n` : "") +
+                  (!activated ? `couriers.status не вдалось виставити "active": ${activateError}.\n` : "") +
+                  `\nПеревірте вручну в адмінці.`,
               }),
             });
           }

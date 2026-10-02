@@ -530,7 +530,7 @@ export default function AdminCouriersPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Пошук за ім'ям або телефоном..."
-              className="flex-1 min-w-48 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+              className="w-full sm:flex-1 sm:min-w-48 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
             />
             <select
               value={cityFilter}

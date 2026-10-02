@@ -166,29 +166,31 @@ export default function AdminCalendarPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-sm">⚡</span>
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
+              <span className="text-white text-sm">⚡</span>
+            </div>
+            <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">PowerDrive Admin</h1>
           </div>
-          <h1 className="text-lg font-bold text-slate-900">PowerDrive Admin</h1>
+          <button
+            onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
+            className="text-sm text-slate-400 hover:text-slate-600 shrink-0"
+          >
+            Вийти
+          </button>
         </div>
-        <nav className="flex gap-4 text-sm">
-          <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700">Кур'єри</a>
-          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700">Скутери</a>
-          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700">Платежі</a>
-          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700">Черга</a>
-          <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1">Календар</span>
+        <nav className="flex gap-4 text-sm mt-3 overflow-x-auto whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
+          <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700 shrink-0">Кур'єри</a>
+          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
+          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
+          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+          <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Календар</span>
         </nav>
-        <button
-          onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
-          className="text-sm text-slate-400 hover:text-slate-600"
-        >
-          Вийти
-        </button>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-2">
             <button

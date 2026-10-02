@@ -496,29 +496,31 @@ export default function AdminCouriersPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-sm">⚡</span>
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
+              <span className="text-white text-sm">⚡</span>
+            </div>
+            <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">PowerDrive Admin</h1>
           </div>
-          <h1 className="text-lg font-bold text-slate-900">PowerDrive Admin</h1>
+          <button
+            onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
+            className="text-sm text-slate-400 hover:text-slate-600 shrink-0"
+          >
+            Вийти
+          </button>
         </div>
-        <nav className="flex gap-4 text-sm">
-          <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1">Кур'єри</span>
-          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700">Скутери</a>
-          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700">Платежі</a>
-          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700">Календар</a>
-          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700">Черга</a>
+        <nav className="flex gap-4 text-sm mt-3 overflow-x-auto whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
+          <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Кур'єри</span>
+          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
+          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
+          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
+          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
         </nav>
-        <button
-          onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
-          className="text-sm text-slate-400 hover:text-slate-600"
-        >
-          Вийти
-        </button>
       </header>
 
-      <div className="p-6 flex gap-6">
+      <div className="p-4 sm:p-6 flex flex-col lg:flex-row gap-6">
         {/* Left: list */}
         <div className="flex-1 min-w-0">
           {/* Filters */}
@@ -628,6 +630,7 @@ export default function AdminCouriersPage() {
             ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-slate-400">{showTrash ? "У кошику нікого немає" : "Кур'єрів не знайдено"}</div>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
@@ -715,13 +718,14 @@ export default function AdminCouriersPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>
 
         {/* Right: detail panel */}
         {selected && (
-          <div className="w-[28rem] shrink-0">
+          <div className="w-full lg:w-[28rem] shrink-0">
             <div className="bg-white rounded-xl border border-slate-200 p-5 sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1 min-w-0">

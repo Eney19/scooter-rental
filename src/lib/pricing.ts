@@ -67,13 +67,15 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       .filter(Boolean) as string[];
   }
   // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер,
-  // він одразу ж (без пільгового періоду) автоматично стає боржником. З дня
-  // прострочення підписки щодня нараховується пеня DEBT_PENALTY_PER_DAY.
-  export const DEBT_GRACE_DAYS = 0;
+  // він автоматично стає боржником з наступного дня після закінчення підписки
+  // (DEBT_GRACE_DAYS = 1 — пільговий день, щоб не позначати боржником одразу
+  // ж у сам день, коли сплив термін оплати). З дня, коли курʼєр став боржником,
+  // щодня нараховується пеня DEBT_PENALTY_PER_DAY.
+  export const DEBT_GRACE_DAYS = 1;
   export const DEBT_PENALTY_PER_DAY = 50;
 
-  // Дата, з якої кур'єр офіційно вважається боржником — це дата закінчення
-  // підписки (DEBT_GRACE_DAYS = 0, без пільгового періоду).
+  // Дата, з якої кур'єр офіційно вважається боржником — наступний день після
+  // закінчення підписки (expires_at + DEBT_GRACE_DAYS), опівночі.
   export function calculateDebtSince(expiresAt: string | Date): Date {
     const d = new Date(expiresAt);
     d.setDate(d.getDate() + DEBT_GRACE_DAYS);

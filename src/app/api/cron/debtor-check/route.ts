@@ -26,10 +26,10 @@ async function sendMessageWithPayButton(chatId: number | string, text: string, b
 }
 
 // Щодня: якщо кур'єр не оплатив підписку і не здав скутер, і адмін не
-// позначив це вручну — одразу ж (без пільгового періоду) автоматично
-// виставляємо статус "Боржник", фіксуємо дату (calculateDebtSince) і рахуємо
-// суму боргу (тариф + DEBT_PENALTY_PER_DAY грн пені за кожен день з моменту,
-// як став боржником).
+// позначив це вручну — автоматично виставляємо статус "Боржник" з наступного
+// дня після закінчення підписки (DEBT_GRACE_DAYS = 1), фіксуємо дату
+// (calculateDebtSince) і рахуємо суму боргу (тариф + DEBT_PENALTY_PER_DAY грн
+// пені за кожен день з моменту, як став боржником).
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {

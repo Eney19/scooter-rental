@@ -30,6 +30,7 @@ const PAYMENTS_PAGE_SIZE = 5;
 const RENTALS_PAGE_SIZE = 3;
 
 const BTN_PAY = "💳 Оплатити";
+const BTN_ADVANCE = "⏩ Оплатити наперед";
 const BTN_STATUS = "📋 Статус";
 const BTN_PAYMENTS = "🧾 Історія оплат";
 const BTN_DOCS = "📄 Документи";
@@ -121,9 +122,9 @@ async function answer(queryId: string, text?: string) {
 
 export const COURIER_MENU_KEYBOARD = {
   keyboard: [
-    [{ text: BTN_PAY }, { text: BTN_STATUS }],
-    [{ text: BTN_PAYMENTS }, { text: BTN_DOCS }],
-    [{ text: BTN_RENTALS }],
+    [{ text: BTN_PAY }, { text: BTN_ADVANCE }],
+    [{ text: BTN_STATUS }, { text: BTN_PAYMENTS }],
+    [{ text: BTN_DOCS }, { text: BTN_RENTALS }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -636,7 +637,7 @@ export async function handleCourierText(chatId: number, rawText: string): Promis
       await showEditor(chatId, null, state);
       return true;
     }
-    if (!text.startsWith("/") && ![BTN_PAY, BTN_STATUS, BTN_PAYMENTS, BTN_DOCS, BTN_RENTALS].includes(text)) {
+    if (!text.startsWith("/") && ![BTN_PAY, BTN_ADVANCE, BTN_STATUS, BTN_PAYMENTS, BTN_DOCS, BTN_RENTALS].includes(text)) {
       await send(chatId, `Введіть суму числом від ${MIN_PRICE} до ${MAX_PRICE} грн (наприклад, 2500).`);
       return true;
     }
@@ -651,6 +652,16 @@ export async function handleCourierText(chatId: number, rawText: string): Promis
     await sendStatus(chatId, courier);
   } else if (cmd === "/pay" || text === BTN_PAY) {
     await startPay(chatId, null, courier);
+  } else if (cmd === "/advance" || text === BTN_ADVANCE) {
+    if (courier.status === "active") {
+      await sendPayScreen(chatId, null, courier);
+    } else {
+      await send(
+        chatId,
+        "Оплата наперед доступна для активної підписки. Скористайтесь кнопкою «💳 Оплатити».",
+        [[{ text: "💳 Оплатити", callback_data: "c:pay" }]]
+      );
+    }
   } else if (cmd === "/history" || text === BTN_PAYMENTS) {
     await showPaymentHistory(chatId, null, courier, 0);
   } else if (cmd === "/docs" || text === BTN_DOCS) {
@@ -661,7 +672,8 @@ export async function handleCourierText(chatId: number, rawText: string): Promis
     await sendCourierMenu(
       chatId,
       "Оберіть дію в меню нижче:\n\n" +
-        `${BTN_PAY} — оплатити оренду (в т.ч. наперед)\n` +
+        `${BTN_PAY} — оплатити оренду\n` +
+        `${BTN_ADVANCE} — оплатити ще на тиждень уперед\n` +
         `${BTN_STATUS} — статус підписки\n` +
         `${BTN_PAYMENTS} — усі ваші оплати\n` +
         `${BTN_DOCS} — договір та акт повернення\n` +

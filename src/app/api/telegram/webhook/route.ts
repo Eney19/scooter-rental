@@ -5,6 +5,7 @@ import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscript
 import { openRentalPeriod } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 import { normalizePhone } from "@/lib/phone";
+import { handleCourierText, handleCourierCallback, sendCourierMenu } from "@/lib/courier-bot";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -14,21 +15,6 @@ async function sendMessage(chatId: number, text: string, options?: object) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", ...options }),
-  });
-}
-
-async function sendMessageWithButton(chatId: number, text: string, buttonText: string, buttonUrl: string) {
-  await fetch(`${API}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [[{ text: buttonText, url: buttonUrl }]],
-      },
-    }),
   });
 }
 
@@ -56,6 +42,12 @@ export async function POST(req: NextRequest) {
     if (update.callback_query) {
       const query = update.callback_query;
       const callbackData: string = query.data || "";
+      // Кнопки курʼєра в боті ("c:...") — окрема гілка, доступна всім
+      // підключеним курʼєрам; адмінська перевірка нижче їх не стосується.
+      if (await handleCourierCallback(query)) {
+        return NextResponse.json({ ok: true });
+      }
+
       const adminChatIds = getAdminChatIds();
 
       // Перевіряємо що натиснув саме адмін (будь-хто зі списку)
@@ -296,12 +288,11 @@ export async function POST(req: NextRequest) {
             })
             .eq("id", courierByLink.id);
 
-          await sendMessage(chatId,
+          await sendCourierMenu(chatId,
             `✅ <b>${courierByLink.full_name}</b>, вас успішно підключено!\n\n` +
-            `Тепер ви будете отримувати нагадування про оплату оренди.\n\n` +
-            `Доступні команди:\n` +
-            `/status — статус підписки\n` +
-            `/pay — оплатити оренду`
+            `Тут ви можете оплатити оренду (онлайн, готівкою чи наперед), переглянути історію оплат, ` +
+            `договір, змінити тариф та отримувати нагадування.\n\n` +
+            `Натисніть «💳 Оплатити» в меню нижче, щоб розпочати.`
           );
           return NextResponse.json({ ok: true });
         }
@@ -351,100 +342,25 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", courier.id);
 
-      await sendMessage(chatId,
+      await sendCourierMenu(chatId,
         `✅ <b>${courier.full_name}</b>, вас успішно підключено!\n\n` +
-        `Тепер ви будете отримувати нагадування про оплату оренди.\n\n` +
-        `Доступні команди:\n` +
-        `/status — статус підписки\n` +
-        `/pay — оплатити оренду`
+        `Тут ви можете оплатити оренду (онлайн, готівкою чи наперед), переглянути історію оплат, ` +
+        `договір, змінити тариф та отримувати нагадування.\n\n` +
+        `Натисніть «💳 Оплатити» в меню нижче, щоб розпочати.`
       );
       return NextResponse.json({ ok: true });
     }
 
-    // Команда /status
-    if (text.startsWith("/status")) {
-      const { data: courier, error: courierError } = await supabaseAdmin
-        .from("couriers")
-        .select("id, full_name, status, subscriptions(status, expires_at, amount)")
-        .eq("telegram_chat_id", chatId)
-        .single();
-
-      if (courierError) console.error("Supabase /status query error:", courierError);
-
-      if (!courier) {
-        await sendMessage(chatId, "❌ Спочатку зареєструйтесь командою /start");
-        return NextResponse.json({ ok: true });
-      }
-
-      const subs = (courier.subscriptions as any[]) || [];
-      const sub = subs
-        .filter((s) => s.status === "active")
-        .sort((a, b) => new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime())[0];
-
-      if (!sub) {
-        await sendMessage(chatId,
-          `📋 <b>Статус:</b> Немає активної підписки\n\n` +
-          `Натисніть /pay щоб оплатити оренду`
-        );
-      } else {
-        const nextDate = new Date(sub.expires_at).toLocaleDateString("uk-UA");
-        await sendMessage(chatId,
-          `✅ <b>Підписка активна</b>\n\n` +
-          `💰 Сума: <b>${sub.amount} грн/тиждень</b>\n` +
-          `📅 Діє до: <b>${nextDate}</b>`
-        );
-      }
-      return NextResponse.json({ ok: true });
-    }
-
-    // Команда /pay
-    if (text.startsWith("/pay")) {
-      const { data: courier } = await supabaseAdmin
-        .from("couriers")
-        .select("id, full_name, city, weekly_price, status, debt_amount")
-        .eq("telegram_chat_id", chatId)
-        .single();
-
-      if (!courier) {
-        await sendMessage(chatId, "❌ Спочатку зареєструйтесь командою /start");
-        return NextResponse.json({ ok: true });
-      }
-
-      const { data: overdueSubForPay } = await supabaseAdmin
-        .from("subscriptions")
-        .select("expires_at")
-        .eq("courier_id", courier.id)
-        .eq("status", "active")
-        .order("expires_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      const lateForPay = overdueSubForPay ? daysOverdue(overdueSubForPay.expires_at) : 0;
-      // Той самий принцип, що й у /api/monopay/create: якщо курʼєр вже
-      // офіційно "Боржник", показуємо ту саму суму, що й у повідомленні
-      // про борг (couriers.debt_amount), а не рахуємо наново.
-      const weeklyPrice = (courier.status === "debtor" && typeof courier.debt_amount === "number")
-        ? courier.debt_amount
-        : totalWithPenalty(getWeeklyPrice(courier), lateForPay);
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
-
-      await sendMessageWithButton(
-        chatId,
-        `💳 <b>Оплата оренди електроскутера</b>\n\n` +
-        `Сума: <b>${weeklyPrice} грн</b> за 7 днів\n\n` +
-        `Натисніть кнопку нижче для оплати:`,
-        `💳 Оплатити ${weeklyPrice} грн`,
-        `${appUrl}/payment/${courier.id}`
-      );
+    // Усе, що стосується підключеного курʼєра (/status, /pay, /history, /docs,
+    // /rentals, кнопки меню, введення ціни) — в lib/courier-bot.
+    if (await handleCourierText(chatId, text)) {
       return NextResponse.json({ ok: true });
     }
 
     // Невідома команда
     await sendMessage(chatId,
-      `Доступні команди:\n` +
-      `/start — реєстрація\n` +
-      `/status — статус підписки\n` +
-      `/pay — оплатити оренду`
+      `Щоб підключитися, відкрийте посилання з сторінки підписання договору ` +
+      `або натисніть /start і поділіться номером телефону.`
     );
 
     return NextResponse.json({ ok: true });

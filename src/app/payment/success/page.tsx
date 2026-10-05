@@ -7,7 +7,7 @@ export default function PaymentSuccessPage() {
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✓</div>
         <h1 className="text-2xl font-bold text-slate-900">Оплату отримано!</h1>
         <p className="text-slate-500 mt-2 mb-6">
-          Дякуємо за оплату. Ваша підписка активована на 7 днів.
+          Дякуємо за оплату. Ваша підписка активована на 7 днів. Історію оплат і всі інші дії дивіться в Telegram-боті.
         </p>
         {botUsername && (
           <a
@@ -15,7 +15,7 @@ export default function PaymentSuccessPage() {
             target="_blank"
             className="inline-block bg-blue-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-blue-600 mb-4"
           >
-            💬 Приєднатися до Telegram-бота
+            💬 Повернутися до Telegram-бота
           </a>
         )}
       </div>

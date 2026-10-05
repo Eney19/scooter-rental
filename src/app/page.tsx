@@ -45,12 +45,14 @@ export default function Home() {
             >
               Зареєструватися
             </Link>
-            <Link
-              href="/cabinet/login"
+            <a
+              href={`https://t.me/${process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot"}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="h-12 px-7 inline-flex items-center rounded-full border border-white/30 text-white font-bold hover:bg-white/10 transition-colors"
             >
-              Особистий кабінет
-            </Link>
+              Telegram-бот
+            </a>
           </div>
         </div>
       </header>

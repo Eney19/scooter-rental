@@ -12,12 +12,24 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount")
+    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, telegram_chat_id")
     .eq("id", courierId)
     .single();
 
   if (error || !courier) {
     return NextResponse.json({ success: false, error: "Кур'єра не знайдено" }, { status: 404 });
+  }
+
+  // Оплата онлайн доступна лише після підключення Telegram-бота: уся
+  // комунікація (чек, історія оплат, нагадування) відбувається в боті.
+  if (!courier.telegram_chat_id) {
+    const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
+    return NextResponse.json({
+      success: false,
+      needTelegram: true,
+      botUrl: `https://t.me/${botUsername}?start=${courierId}`,
+      error: "Спочатку підключіть Telegram-бота (натисніть /start) — оплата доступна через нього.",
+    }, { status: 403 });
   }
 
   const baseAmount = getWeeklyPrice(courier);

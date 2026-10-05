@@ -15,6 +15,7 @@ export default function PaymentPage() {
   const [batteryWeeklyPrice, setBatteryWeeklyPrice] = useState<number>(0);
   const [batteryLabels, setBatteryLabels] = useState<string[]>([]);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
+  const [botUrl, setBotUrl] = useState<string | null>(null);
 
   useEffect(() => {
     async function init() {
@@ -28,6 +29,7 @@ export default function PaymentPage() {
         const data = await res.json();
 
         if (!data.success || !data.pageUrl) {
+          if (data.needTelegram && data.botUrl) setBotUrl(data.botUrl);
           setStatus("error");
           setErrorMessage(data.error || "Не вдалося створити платіж. Спробуйте ще раз.");
           return;
@@ -138,12 +140,21 @@ export default function PaymentPage() {
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Помилка оплати</h1>
             <p className="text-slate-500 mt-2 mb-6">{errorMessage}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition"
-            >
-              Спробувати ще раз
-            </button>
+            {botUrl ? (
+              <a
+                href={botUrl}
+                className="inline-block bg-blue-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-600 transition"
+              >
+                💬 Відкрити Telegram-бота
+              </a>
+            ) : (
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition"
+              >
+                Спробувати ще раз
+              </button>
+            )}
           </>
         )}
       </div>

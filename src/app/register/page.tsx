@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { BATTERY_OPTIONS, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { normalizePhone } from "@/lib/phone";
@@ -32,7 +31,6 @@ const WEEKLY_PRICES = ["1750", "2100", "2400", "2800"];
 const SCOOTER_MODELS = ["FADA Flit II", "Aima u1s", "Dominator A-9", "Crosser CR 21 Tank"];
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<FormState>(init);
   const [courierId, setCourierId] = useState<string>("");
@@ -42,14 +40,6 @@ export default function RegisterPage() {
   const [smsError, setSmsError] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
   const [contractPdfUrl, setContractPdfUrl] = useState<string | null>(null);
-  const [cashRequested, setCashRequested] = useState(false);
-  const [cashLoading, setCashLoading] = useState(false);
-  const [cabinetPassword, setCabinetPassword] = useState("");
-  const [cabinetPassword2, setCabinetPassword2] = useState("");
-  const [cabinetPasswordSaved, setCabinetPasswordSaved] = useState(false);
-  const [cabinetPasswordSaving, setCabinetPasswordSaving] = useState(false);
-  const [cabinetPasswordError, setCabinetPasswordError] = useState<string | null>(null);
-  const [telegramJoined, setTelegramJoined] = useState(false);
   const [passportFile, setPassportFile] = useState<File | null>(null);
   const [propyskaFile, setPropyskaFile] = useState<File | null>(null);
   const [rnokppFile, setRnokppFile] = useState<File | null>(null);
@@ -81,7 +71,7 @@ export default function RegisterPage() {
     }
     const emailTrimmed = form.email.trim();
     if (!emailTrimmed) {
-      setError("Будь ласка, вкажіть email — він потрібен для входу в особистий кабінет"); return;
+      setError("Будь ласка, вкажіть email — він потрібен, щоб надіслати копію договору"); return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
       setError("Вкажіть коректний email"); return;
@@ -265,111 +255,7 @@ export default function RegisterPage() {
     setSigned(true);
   }
 
-  async function handleCashPayment() {
-    setCashLoading(true);
-    try {
-      const res = await fetch("/api/cash-payment-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courierId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setCashRequested(true);
-      }
-    } finally {
-      setCashLoading(false);
-    }
-  }
-
-  async function saveCabinetPassword() {
-    if (cabinetPassword.length < 6) { setCabinetPasswordError("Пароль має містити щонайменше 6 символів"); return; }
-    if (cabinetPassword !== cabinetPassword2) { setCabinetPasswordError("Паролі не збігаються"); return; }
-    setCabinetPasswordSaving(true);
-    setCabinetPasswordError(null);
-    try {
-      const res = await fetch("/api/cabinet/set-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: cabinetPassword }),
-      });
-      const data = await res.json();
-      if (!data.success) { setCabinetPasswordError(data.error || "Помилка збереження паролю"); return; }
-      setCabinetPasswordSaved(true);
-    } catch {
-      setCabinetPasswordError("Помилка з'єднання");
-    } finally {
-      setCabinetPasswordSaving(false);
-    }
-  }
-
   const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "powerdrive_scooter_bot";
-
-  function renderTelegramPasswordWidget() {
-    if (!telegramJoined) {
-      return (
-        <div className="border-t border-slate-100 mt-6 pt-5 text-center">
-          <p className="text-sm font-semibold text-slate-900 mb-1">Приєднайтесь до Telegram-бота</p>
-          <p className="text-xs text-slate-400 mb-3">
-            У боті ви отримаєте підтвердження та нагадування про наступні оплати. Після цього — встановите пароль для входу в особистий кабінет.
-          </p>
-          {botUsername && (
-            <a
-              href={`https://t.me/${botUsername}`}
-              target="_blank"
-              className="inline-block bg-blue-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-blue-600 mb-3"
-            >
-              💬 Приєднатися до Telegram-бота
-            </a>
-          )}
-          <button
-            onClick={() => setTelegramJoined(true)}
-            className="w-full border-2 border-slate-200 text-slate-700 rounded-xl py-3 font-semibold hover:bg-slate-50"
-          >
-            Я приєднався, далі →
-          </button>
-        </div>
-      );
-    }
-    return (
-      <div className="border-t border-slate-100 mt-6 pt-5 text-left">
-        {!cabinetPasswordSaved ? (
-          <>
-            <p className="text-sm font-semibold text-slate-900 mb-1">Встановіть пароль для особистого кабінету</p>
-            <p className="text-xs text-slate-400 mb-3">
-              Номер телефону вже підтверджено — далі заходьте в кабінет паролем, без SMS.
-            </p>
-            <input
-              type="password"
-              value={cabinetPassword}
-              onChange={(e) => setCabinetPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 mb-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900"
-              placeholder="Пароль (щонайменше 6 символів)"
-            />
-            <input
-              type="password"
-              value={cabinetPassword2}
-              onChange={(e) => setCabinetPassword2(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 mb-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900"
-              placeholder="Повторіть пароль"
-            />
-            {cabinetPasswordError && <p className="bg-red-50 text-red-700 px-4 py-2 rounded-xl text-sm mb-2">{cabinetPasswordError}</p>}
-            <button
-              onClick={saveCabinetPassword}
-              disabled={cabinetPasswordSaving}
-              className="w-full border-2 border-slate-200 text-slate-700 rounded-xl py-3 font-semibold hover:bg-slate-50 disabled:opacity-60"
-            >
-              {cabinetPasswordSaving ? "Збереження..." : "Зберегти пароль"}
-            </button>
-          </>
-        ) : (
-          <p className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm text-center">
-            Пароль збережено! Кабінет — <a href="/cabinet" className="underline font-semibold">powerdrive.in.ua/cabinet</a>
-          </p>
-        )}
-      </div>
-    );
-  }
 
   const inp = "w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-900";
   const lbl = "block text-sm font-medium text-slate-700 mb-1";
@@ -397,47 +283,32 @@ export default function RegisterPage() {
     </div>
   );
 
-  if (signed && cashRequested) return (
-    <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-8 text-center shadow-lg max-w-md w-full">
-        <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">⏳</div>
-        <h1 className="text-2xl font-bold text-slate-900">Очікуємо підтвердження оплати</h1>
-        <p className="text-slate-500 mt-2 mb-4">
-          Адміністратора сповіщено. Щойно він підтвердить отримання готівки — ваша підписка активується автоматично.
-        </p>
-        {renderTelegramPasswordWidget()}
-      </div>
-    </div>
-  );
-
   if (signed) return (
     <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl p-8 text-center shadow-lg max-w-md w-full">
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✓</div>
         <h1 className="text-2xl font-bold text-slate-900">Договір підписано!</h1>
-        <p className="text-slate-500 mt-2 mb-4">Копію договору надіслано на ваш email. Оберіть спосіб оплати:</p>
+        <p className="text-slate-500 mt-2 mb-4">
+          Копію договору надіслано на ваш email. Наступний крок — відкрийте Telegram-бота й натисніть «Start»:
+          там ви оплатите оренду (онлайн чи готівкою), побачите історію оплат та договір.
+        </p>
+        <a
+          href={`https://t.me/${botUsername}?start=${courierId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full inline-flex items-center justify-center gap-2 bg-blue-500 text-white rounded-xl py-4 text-lg font-bold hover:bg-blue-600 transition-colors"
+        >
+          <span>💬</span>
+          <span>Відкрити Telegram-бота</span>
+        </a>
+        <p className="text-xs text-slate-400 mt-3">
+          Оплата доступна лише після підключення бота.
+        </p>
         {contractPdfUrl && (
-          <a href={contractPdfUrl} target="_blank" className="inline-block bg-blue-600 text-white rounded-xl px-6 py-3 font-semibold hover:bg-blue-700 mb-3">
+          <a href={contractPdfUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-5 text-sm text-blue-600 underline">
             📄 Завантажити договір PDF
           </a>
         )}
-       <button
-          onClick={() => router.push(`/payment/${courierId}`)}
-          className="w-full mt-3 bg-green-600 text-white rounded-xl py-4 text-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-        >
-          <span>💳</span>
-          <span>Оплатити онлайн</span>
-        </button>
-        <button
-          onClick={handleCashPayment}
-          disabled={cashLoading}
-          className="w-full mt-3 border-2 border-slate-200 text-slate-700 rounded-xl py-4 text-lg font-bold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-        >
-          <span>💵</span>
-          <span>{cashLoading ? "Надсилаємо..." : "Оплата готівкою на місці"}</span>
-        </button>
-
-        {renderTelegramPasswordWidget()}
       </div>
     </div>
   );
@@ -467,7 +338,7 @@ export default function RegisterPage() {
             </div>
             <div><label className={lbl}>Email *</label>
               <input type="email" required value={form.email} onChange={e=>set("email",e.target.value)} className={inp} placeholder="email@example.com"/>
-              <p className="text-xs text-slate-400 mt-1">Потрібен для входу в особистий кабінет (пароль, відновлення) — без email кабінет буде недоступний.</p>
+              <p className="text-xs text-slate-400 mt-1">Надішлемо на нього копію договору.</p>
             </div>
 
             <div className="border-t border-slate-100 pt-4 space-y-3">

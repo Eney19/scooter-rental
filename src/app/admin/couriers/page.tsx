@@ -29,7 +29,6 @@ type Courier = {
   registration_step: number | null;
   registration_attempts: number | null;
   battery_types: string[] | null;
-  last_cabinet_login_at: string | null;
   telegram_chat_id: number | null;
   telegram_connected_at: string | null;
   deleted_at: string | null;
@@ -1266,9 +1265,6 @@ export default function AdminCouriersPage() {
                 {selected.return_signed_at && (
                   <><br/>Повернення: {new Date(selected.return_signed_at).toLocaleDateString("uk-UA")}</>
                 )}
-                <br/>Останній вхід у кабінет: {selected.last_cabinet_login_at
-                  ? new Date(selected.last_cabinet_login_at).toLocaleString("uk-UA")
-                  : "ще не заходив(ла)"}
               </p>
 
               {!selected.deleted_at && (

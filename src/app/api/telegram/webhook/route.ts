@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         // Отримуємо дані курʼєра
         const { data: courier } = await supabaseAdmin
           .from("couriers")
-          .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at")
+          .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at, no_penalty")
           .eq("id", courierId)
           .single();
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
           .single();
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-        const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late);
+        const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
         // Завдаток за скутер — лише при першій оплаті кур'єра, залежить від міста.
         const firstPayment = await isFirstPayment(courierId);
         const deposit = firstPayment ? getDepositAmount(courier.city) : 0;

@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, phone, city, weekly_price, telegram_chat_id)
+        courier:couriers(full_name, phone, city, weekly_price, no_penalty, telegram_chat_id)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
         phone: string;
         city: string;
         weekly_price: number | null;
+        no_penalty: boolean | null;
         telegram_chat_id: number | null;
       } | null;
 
@@ -70,8 +71,9 @@ export async function GET(req: NextRequest) {
       if (late < 1) continue;
 
       const baseAmount = getWeeklyPrice(courier);
-      const penalty = calculatePenalty(late);
-      const total = totalWithPenalty(baseAmount, late);
+      const noPenalty = !!courier.no_penalty;
+      const penalty = calculatePenalty(late, noPenalty);
+      const total = totalWithPenalty(baseAmount, late, noPenalty);
 
       const adminChatIds = getAdminChatIds();
       if (adminChatIds.length > 0) {
@@ -84,7 +86,9 @@ export async function GET(req: NextRequest) {
             `Телефон: ${courier.phone}\n` +
             `Місто: ${courier.city || "—"}\n` +
             `Прострочено з: <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>\n` +
-            `Сума з пенею: <b>${total} грн</b> (${baseAmount} + ${penalty})\n\n` +
+            (noPenalty
+              ? `Сума: <b>${total} грн</b> (пеню вимкнено для цього курʼєра)\n\n`
+              : `Сума з пенею: <b>${total} грн</b> (${baseAmount} + ${penalty})\n\n`) +
             `${late === 3 ? "🚫 Курʼєру надіслано повідомлення про блокування\n" : ""}` +
             `${courier.telegram_chat_id ? "✅ Курʼєр підключив Telegram" : "⚠️ Курʼєр не підключив Telegram"}`,
             "💵 Позначити оплату готівкою",

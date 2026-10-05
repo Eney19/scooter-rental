@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, courier_id,
-        courier:couriers(id, full_name, city, weekly_price, status, debt_since, debt_auto, telegram_chat_id)
+        courier:couriers(id, full_name, city, weekly_price, status, debt_since, debt_auto, no_penalty, telegram_chat_id)
       `)
       .eq("status", "active")
       .lt("expires_at", graceThreshold.toISOString());
@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
         status: string | null;
         debt_since: string | null;
         debt_auto: boolean | null;
+        no_penalty: boolean | null;
         telegram_chat_id: number | null;
       } | null;
       if (!courier) continue;
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
       const wasAlreadyDebtor = courier.status === "debtor";
       const debtSince = courier.debt_since || calculateDebtSince(sub.expires_at).toISOString();
       const baseAmount = getWeeklyPrice(courier);
-      const debtAmount = calculateAutoDebt(baseAmount, debtSince);
+      const debtAmount = calculateAutoDebt(baseAmount, debtSince, !!courier.no_penalty);
       const penalty = debtAmount - baseAmount;
 
       await supabaseAdmin
@@ -99,9 +100,12 @@ export async function GET(req: NextRequest) {
           `🔴 <b>Заборгованість</b>\n\n` +
           `Підписку прострочено, і скутер не повернуто. Ваш статус змінено на "Боржник".\n\n` +
           `Оренда за наступні 7 днів: <b>${baseAmount} грн</b>\n` +
-          `Пеня (${overdueDays} ${dayWord} × ${DEBT_PENALTY_PER_DAY} грн): <b>${penalty} грн</b>\n` +
-          `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
-          `Пеня нараховується щодня, доки борг не погашено. Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер, щоб зупинити нарахування.`,
+          (courier.no_penalty
+            ? `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
+              `Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер.`
+            : `Пеня (${overdueDays} ${dayWord} × ${DEBT_PENALTY_PER_DAY} грн): <b>${penalty} грн</b>\n` +
+              `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
+              `Пеня нараховується щодня, доки борг не погашено. Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер, щоб зупинити нарахування.`),
           `💳 Оплатити ${debtAmount} грн`,
           courier.id
         );

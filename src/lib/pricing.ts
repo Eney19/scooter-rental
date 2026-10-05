@@ -24,12 +24,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     return Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
   }
   
-  export function calculatePenalty(daysLate: number): number {
+  // noPenalty — адмін вимкнув нарахування пені для цього курʼєра (couriers.no_penalty).
+  export function calculatePenalty(daysLate: number, noPenalty = false): number {
+    if (noPenalty) return 0;
     return Math.max(0, daysLate) * PENALTY_PER_DAY;
   }
   
-  export function totalWithPenalty(baseAmount: number, daysLate: number): number {
-    return baseAmount + calculatePenalty(daysLate);
+  export function totalWithPenalty(baseAmount: number, daysLate: number, noPenalty = false): number {
+    return baseAmount + calculatePenalty(daysLate, noPenalty);
   }
 
   // Завдаток за скутер — стягується лише один раз, при першій оплаті кур'єра.
@@ -95,6 +97,7 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
 
   // Автоматична сума боргу: базова сума (тиждень оренди, який не оплатили) +
   // пеня DEBT_PENALTY_PER_DAY грн за кожен день з моменту, коли кур'єр став боржником.
-  export function calculateAutoDebt(baseAmount: number, debtSince: string | Date): number {
+  export function calculateAutoDebt(baseAmount: number, debtSince: string | Date, noPenalty = false): number {
+    if (noPenalty) return baseAmount;
     return baseAmount + daysSinceDebt(debtSince) * DEBT_PENALTY_PER_DAY;
   }

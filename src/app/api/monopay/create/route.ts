@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, telegram_chat_id")
+    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, no_penalty, telegram_chat_id")
     .eq("id", courierId)
     .single();
 
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   // розходяться в підрахунку днів.
   const rentAmount = (courier.status === "debtor" && typeof courier.debt_amount === "number")
     ? courier.debt_amount
-    : totalWithPenalty(baseAmount, late);
+    : totalWithPenalty(baseAmount, late, !!courier.no_penalty);
 
   // Завдаток стягується лише при першій оплаті кур'єра (ще немає жодної підписки)
   const { count: subsCount } = await supabaseAdmin

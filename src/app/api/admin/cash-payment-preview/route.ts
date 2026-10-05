@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, battery_types")
+      .select("city, weekly_price, battery_types, no_penalty")
       .eq("id", courierId)
       .single();
 
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-    const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late);
+    const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
     const firstPayment = await isFirstPayment(courierId);
     const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);

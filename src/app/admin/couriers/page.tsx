@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
-import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -26,6 +26,7 @@ type Courier = {
   debt_since: string | null;
   debt_amount: number | null;
   debt_auto: boolean | null;
+  no_penalty: boolean | null;
   registration_step: number | null;
   registration_attempts: number | null;
   battery_types: string[] | null;
@@ -244,6 +245,24 @@ export default function AdminCouriersPage() {
     await supabase.from("couriers").update({ debt_since: value, debt_auto: false }).eq("id", id);
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, debt_since: value, debt_auto: false } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_since: value, debt_auto: false } : null);
+  }
+
+  // Галочка "Не нараховувати пеню": якщо борг рахується автоматично — одразу
+  // перераховуємо суму (без пені / з пенею), далі це робить щоденний cron.
+  async function toggleNoPenalty(id: string, value: boolean) {
+    const c = couriers.find(x => x.id === id) ?? (selected?.id === id ? selected : null);
+    const patch: Record<string, unknown> = { no_penalty: value };
+    if (c && c.status === "debtor" && c.debt_auto && c.debt_since) {
+      patch.debt_amount = calculateAutoDebt(getWeeklyPrice(c), c.debt_since, value);
+    }
+    const { error } = await supabase.from("couriers").update(patch).eq("id", id);
+    if (error) {
+      console.error("toggleNoPenalty failed", error);
+      alert(`Не вдалося зберегти: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(x => x.id === id ? ({ ...x, ...patch } as Courier) : x));
+    if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, ...patch } as Courier) : null);
   }
 
   async function saveDebtAmount(id: string, value: string) {
@@ -1026,6 +1045,15 @@ export default function AdminCouriersPage() {
               <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Заборгованість</p>
                 <div className="space-y-2">
+                  <label className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!selected.no_penalty}
+                      onChange={e => toggleNoPenalty(selected.id, e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>Не нараховувати пеню ({DEBT_PENALTY_PER_DAY} грн/день) цьому курʼєру</span>
+                  </label>
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Боржник з</span>
                     <input
@@ -1038,7 +1066,7 @@ export default function AdminCouriersPage() {
                   {selected.debt_since && (() => {
                     const baseAmount = getWeeklyPrice(selected);
                     const days = daysSinceDebt(selected.debt_since);
-                    const penalty = days * DEBT_PENALTY_PER_DAY;
+                    const penalty = selected.no_penalty ? 0 : days * DEBT_PENALTY_PER_DAY;
                     const computedTotal = baseAmount + penalty;
                     return (
                       <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-xs space-y-0.5">
@@ -1046,7 +1074,7 @@ export default function AdminCouriersPage() {
                           <span>Борг за підписку</span><span>{baseAmount} грн</span>
                         </p>
                         <p className="flex justify-between text-slate-600">
-                          <span>Пеня ({days} {daysWord(days)} × {DEBT_PENALTY_PER_DAY} грн)</span><span>{penalty} грн</span>
+                          <span>{selected.no_penalty ? "Пеня вимкнена" : `Пеня (${days} ${daysWord(days)} × ${DEBT_PENALTY_PER_DAY} грн)`}</span><span>{penalty} грн</span>
                         </p>
                         <p className="flex justify-between font-medium text-red-700 border-t border-red-100 pt-0.5">
                           <span>Разом зараз</span><span>{computedTotal} грн</span>
@@ -1076,7 +1104,10 @@ export default function AdminCouriersPage() {
                   </div>
                   {selected.debt_auto && (
                     <p className="text-[11px] text-slate-400">
-                      Рахується автоматично: +{DEBT_PENALTY_PER_DAY} грн/день, поки борг не погашено. Зміните значення вручну — і автонарахування для цього кур'єра зупиниться.
+                      {selected.no_penalty
+                        ? "Рахується автоматично без пені (тільки борг за підписку). "
+                        : `Рахується автоматично: +${DEBT_PENALTY_PER_DAY} грн/день, поки борг не погашено. `}
+                      Зміните значення вручну — і автонарахування для цього кур'єра зупиниться.
                     </p>
                   )}
                 </div>

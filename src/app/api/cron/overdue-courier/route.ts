@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, city, weekly_price, telegram_chat_id)
+        courier:couriers(full_name, city, weekly_price, no_penalty, telegram_chat_id)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
         full_name: string;
         city: string;
         weekly_price: number | null;
+        no_penalty: boolean | null;
         telegram_chat_id: number | null;
       } | null;
 
@@ -57,8 +58,10 @@ export async function GET(req: NextRequest) {
       if (late < 1) continue;
 
       const baseAmount = getWeeklyPrice(courier);
-      const penalty = calculatePenalty(late);
-      const total = totalWithPenalty(baseAmount, late);
+      const noPenalty = !!courier.no_penalty;
+      const penalty = calculatePenalty(late, noPenalty);
+      const total = totalWithPenalty(baseAmount, late, noPenalty);
+      const breakdown = noPenalty ? "" : ` (${baseAmount} + ${penalty} пеня)`;
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
       const payUrl = `${appUrl}/payment/${sub.courier_id}`;
 
@@ -67,7 +70,7 @@ export async function GET(req: NextRequest) {
           courier.telegram_chat_id,
           `🚫 <b>Скутер заблоковано</b>\n\n` +
           `Ваша оренда прострочена вже 3 дні. Скутер PowerDrive тимчасово заблоковано до погашення заборгованості.\n\n` +
-          `💰 Сума до сплати: <b>${total} грн</b> (${baseAmount} + ${penalty} пеня)\n\n` +
+          `💰 Сума до сплати: <b>${total} грн</b>${breakdown}\n\n` +
           `Будь ласка, оберіть один із варіантів:\n\n` +
           `1️⃣ Сплатіть заборгованість — скутер розблокується автоматично\n` +
           `<a href="${payUrl}">💳 Оплатити онлайн</a>\n\n` +
@@ -81,11 +84,11 @@ export async function GET(req: NextRequest) {
           `⚠️ <b>Прострочена оплата оренди</b>\n\n` +
           `Ваша підписка на електроскутер PowerDrive закінчилась <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>.\n\n` +
           `Минуло днів прострочення: <b>${late}</b>\n` +
-          `Пеня: 50 грн × ${late} ${late === 1 ? "день" : "дні"} = ${penalty} грн\n\n` +
-          `💰 Сума до сплати: <b>${total} грн</b> (${baseAmount} + ${penalty} пеня)\n\n` +
+          (noPenalty ? "\n" : `Пеня: 50 грн × ${late} ${late === 1 ? "день" : "дні"} = ${penalty} грн\n\n`) +
+          `💰 Сума до сплати: <b>${total} грн</b>${breakdown}\n\n` +
           `<a href="${payUrl}">💳 Оплатити онлайн</a>\n\n` +
-          `Або зверніться до адміністратора для оплати готівкою.\n\n` +
-          `Кожен наступний день прострочення додає +50 грн пені.`
+          `Або зверніться до адміністратора для оплати готівкою.` +
+          (noPenalty ? "" : `\n\nКожен наступний день прострочення додає +50 грн пені.`)
         );
       }
       notified++;

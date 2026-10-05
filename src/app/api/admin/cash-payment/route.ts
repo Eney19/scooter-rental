@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at")
+      .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at, no_penalty")
       .eq("id", courierId)
       .single();
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     // заздалегідь (cash-payment-preview) і може їх відредагувати — якщо
     // передані rentOverride/depositOverride, довіряємо їм замість перерахунку.
     const firstPayment = await isFirstPayment(courierId);
-    const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late);
+    const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
     const deposit = typeof depositOverride === "number" ? depositOverride : (firstPayment ? getDepositAmount(courier.city) : 0);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;

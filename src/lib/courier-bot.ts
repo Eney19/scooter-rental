@@ -54,6 +54,7 @@ type Courier = {
   return_signed_at: string | null;
   debt_since: string | null;
   debt_amount: number | null;
+  no_penalty: boolean | null;
 };
 
 type Draft = { city: string; base: number; model: string; batteries: string[] };
@@ -68,7 +69,7 @@ type CallbackQuery = {
 
 const COURIER_COLUMNS =
   "id, full_name, phone, city, status, weekly_price, scooter_model, battery_types, " +
-  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount";
+  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, no_penalty";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
 
@@ -238,7 +239,7 @@ async function getQuote(courier: Courier) {
   const rentAmount =
     courier.status === "debtor" && typeof courier.debt_amount === "number"
       ? courier.debt_amount
-      : totalWithPenalty(baseWeekly, late);
+      : totalWithPenalty(baseWeekly, late, !!courier.no_penalty);
   const penalty = Math.max(0, rentAmount - baseWeekly);
 
   const first = await isFirstPayment(courier.id);

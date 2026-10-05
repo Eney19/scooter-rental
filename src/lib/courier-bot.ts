@@ -7,6 +7,8 @@ import {
   getWeeklyPrice,
   daysOverdue,
   totalWithPenalty,
+  daysSinceDebt,
+  DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
 import { isFirstPayment } from "@/lib/subscription";
 import { requestCashPayment } from "@/lib/cash-request";
@@ -154,6 +156,13 @@ function weeksWord(n: number): string {
   return "тижнів";
 }
 
+function daysWord(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "дні";
+  return "днів";
+}
+
 function weeksAheadPaid(expiresAt: string): number {
   const diffMs = new Date(expiresAt).getTime() - Date.now();
   if (diffMs <= 0) return 0;
@@ -286,7 +295,16 @@ async function sendStatus(chatId: number, courier: Courier) {
     }
   }
   if (status === "debtor" && courier.debt_amount) {
-    text += `💸 Заборгованість: <b>${courier.debt_amount} грн</b>\n`;
+    // Борг окремо, пеня окремо, разом — так само, як у щоденному
+    // повідомленні про заборгованість (cron debtor-check).
+    const base = getWeeklyPrice(courier);
+    const penalty = Math.max(0, courier.debt_amount - base);
+    text += `\n💸 <b>Заборгованість</b>\nБорг за підписку: ${base} грн\n`;
+    if (penalty > 0) {
+      const days = courier.debt_since ? daysSinceDebt(courier.debt_since) : Math.round(penalty / DEBT_PENALTY_PER_DAY);
+      text += `Пеня (${days} ${daysWord(days)} × ${DEBT_PENALTY_PER_DAY} грн): ${penalty} грн\n`;
+    }
+    text += `Разом до сплати: <b>${courier.debt_amount} грн</b>\n`;
   }
   text += `\n${tariffLine(courier)}`;
 
@@ -307,7 +325,10 @@ async function sendPayScreen(chatId: number, messageId: number | null, courier: 
   const q = await getQuote(courier);
   const parts = [`оренда скутера ${q.scooterAmount} грн`];
   if (q.batteryAmount > 0) parts.push(`акумулятор ${q.batteryAmount} грн`);
-  if (q.penalty > 0) parts.push(`пеня ${q.penalty} грн`);
+  if (q.penalty > 0) {
+    const penaltyDays = Math.round(q.penalty / DEBT_PENALTY_PER_DAY);
+    parts.push(`пеня ${q.penalty} грн (${penaltyDays} ${daysWord(penaltyDays)} × ${DEBT_PENALTY_PER_DAY})`);
+  }
   if (q.deposit > 0) parts.push(`завдаток ${q.deposit} грн`);
 
   const isActive = courier.status === "active";

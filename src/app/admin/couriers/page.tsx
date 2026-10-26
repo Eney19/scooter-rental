@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
 import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
@@ -150,12 +151,19 @@ export default function AdminCouriersPage() {
   const [courierPayments, setCourierPayments] = useState<PaymentRecord[]>([]);
   const [courierPaymentsLoading, setCourierPaymentsLoading] = useState(false);
 
+  const [role, setRole] = useState<AdminRole | null>(null);
+
   useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
-      router.push("/admin");
-      return;
+    async function init() {
+      const r = getAdminRole();
+      if (!r) {
+        router.push("/admin");
+        return;
+      }
+      setRole(r);
+      await loadCouriers();
     }
-    loadCouriers();
+    init();
   }, []);
 
   async function loadCouriers() {
@@ -648,7 +656,7 @@ export default function AdminCouriersPage() {
             <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">PowerDrive Admin</h1>
           </div>
           <button
-            onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
+            onClick={() => { clearAdminRole(); router.push("/admin"); }}
             className="text-sm text-slate-400 hover:text-slate-600 shrink-0"
           >
             Вийти
@@ -656,10 +664,14 @@ export default function AdminCouriersPage() {
         </div>
         <nav className="flex gap-4 text-sm mt-3 overflow-x-auto whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Кур'єри</span>
-          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
-          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
-          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
-          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+          {role === "admin" && (
+            <>
+              <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
+              <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
+              <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
+              <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+            </>
+          )}
           <a href="/admin/cash" className="text-slate-500 hover:text-slate-700 shrink-0">Каса</a>
         </nav>
       </header>

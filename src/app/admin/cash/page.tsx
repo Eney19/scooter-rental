@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
 
 type CashEntry = {
   id: string;
@@ -40,12 +41,19 @@ export default function AdminCashPage() {
   const [edits, setEdits] = useState<CashEntryEdit[]>([]);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
+  const [role, setRole] = useState<AdminRole | null>(null);
+
   useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
-      router.push("/admin");
-      return;
+    async function init() {
+      const r = getAdminRole();
+      if (!r) {
+        router.push("/admin");
+        return;
+      }
+      setRole(r);
+      await loadEntries();
     }
-    loadEntries();
+    init();
   }, []);
 
   async function loadEntries() {
@@ -165,7 +173,7 @@ export default function AdminCashPage() {
             <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">PowerDrive Admin</h1>
           </div>
           <button
-            onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
+            onClick={() => { clearAdminRole(); router.push("/admin"); }}
             className="text-sm text-slate-400 hover:text-slate-600 shrink-0"
           >
             Вийти
@@ -173,10 +181,14 @@ export default function AdminCashPage() {
         </div>
         <nav className="flex gap-4 text-sm mt-3 overflow-x-auto whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
           <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700 shrink-0">Кур'єри</a>
-          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
-          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
-          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
-          <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+          {role === "admin" && (
+            <>
+              <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
+              <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
+              <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
+              <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+            </>
+          )}
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Каса</span>
         </nav>
       </header>

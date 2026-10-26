@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getAdminRole, clearAdminRole } from "@/lib/admin-auth";
 
 type Sub = { id: string; expires_at: string; amount: number; status: string };
 type Courier = {
@@ -55,8 +56,13 @@ export default function AdminCalendarPage() {
   const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(new Date()));
 
   useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
+    const r = getAdminRole();
+    if (!r) {
       router.push("/admin");
+      return;
+    }
+    if (r !== "admin") {
+      router.push("/admin/couriers");
       return;
     }
     loadData();
@@ -175,7 +181,7 @@ export default function AdminCalendarPage() {
             <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">PowerDrive Admin</h1>
           </div>
           <button
-            onClick={() => { sessionStorage.removeItem("admin_auth"); router.push("/admin"); }}
+            onClick={() => { clearAdminRole(); router.push("/admin"); }}
             className="text-sm text-slate-400 hover:text-slate-600 shrink-0"
           >
             Вийти

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { setAdminRole } from "@/lib/admin-auth";
 
 export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
@@ -10,7 +11,11 @@ export default function AdminLoginPage() {
   function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD || password === "admin2024") {
-      sessionStorage.setItem("admin_auth", "true");
+      setAdminRole("admin");
+      router.push("/admin/couriers");
+    } else if (password === process.env.NEXT_PUBLIC_MANAGER_PASSWORD || password === "manager2024") {
+      // Менеджер: лише Кур'єри + Каса (сторінки самі обмежують доступ).
+      setAdminRole("manager");
       router.push("/admin/couriers");
     } else {
       setError(true);

@@ -119,6 +119,34 @@ function computePaymentPeriods(payments: PaymentRecord[]): Record<string, { star
   return periods;
 }
 
+// Розбиває суму оренди на тижні+дні+залишок за денним тарифом
+// (weeklyPrice/7). Якщо сума не ділиться рівно — залишок (менший за
+// ціну одного дня) повертається окремо, а не округлюється в зайвий день.
+// Використовується і для відображення історії платежів, і в панелі
+// готівкової оплати (щоб адмін бачив те саме до збереження).
+function breakdownRentDays(amount: number, weeklyPrice: number): { weeks: number; days: number; leftover: number; dayRate: number } {
+  const dayRate = weeklyPrice > 0 ? weeklyPrice / 7 : 0;
+  if (dayRate <= 0 || amount <= 0) {
+    return { weeks: 0, days: 0, leftover: Math.max(0, Math.round(amount)), dayRate };
+  }
+  const totalDays = Math.floor(amount / dayRate + 1e-9);
+  const weeks = Math.floor(totalDays / 7);
+  const days = totalDays % 7;
+  const leftover = Math.round(amount - totalDays * dayRate);
+  return { weeks, days, leftover, dayRate };
+}
+
+function formatRentDaysBreakdown(amount: number, weeklyPrice: number): string {
+  const { weeks, days, leftover, dayRate } = breakdownRentDays(amount, weeklyPrice);
+  const parts: string[] = [];
+  if (weeks > 0) parts.push(`${weeks} ${weeksWord(weeks)}`);
+  if (days > 0) parts.push(`${days} ${daysWord(days)}`);
+  const base = parts.length > 0 ? `Проплачено: ${parts.join(" ")}` : "Проплачено: менше дня";
+  const leftoverText = leftover > 0 ? ` · залишок ${leftover} грн` : "";
+  const dayRateText = dayRate > 0 ? ` · ≈${Math.round(dayRate)} грн/день` : "";
+  return `${base}${leftoverText}${dayRateText}`;
+}
+
 export default function AdminCouriersPage() {
   const router = useRouter();
   const [couriers, setCouriers] = useState<Courier[]>([]);
@@ -142,6 +170,7 @@ export default function AdminCouriersPage() {
   const [cashPaymentDate, setCashPaymentDate] = useState("");
   const [cashRentAmount, setCashRentAmount] = useState("");
   const [cashDepositAmount, setCashDepositAmount] = useState("");
+  const [cashTariff, setCashTariff] = useState("");
   const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -441,6 +470,7 @@ export default function AdminCouriersPage() {
     setCashPaymentDate(new Date().toISOString().slice(0, 10));
     setCashRentAmount("");
     setCashDepositAmount("");
+    setCashTariff(selected ? String(getWeeklyPrice(selected)) : "");
     setShowCashDatePicker(true);
     setCashPreviewLoading(true);
     try {
@@ -499,6 +529,39 @@ export default function AdminCouriersPage() {
       setCashPaymentLoading(false);
     }
   }
+
+  // Перед фактичним збереженням готівкової оплати показуємо адміну
+  // розбивку (тариф → скільки днів/тижнів це покриває + залишок) і просимо
+  // підтвердити — щоб він побачив, чи тариф той самий, і за потреби
+  // відредагував його саме тут. Якщо тариф відрізняється від того, що
+  // збережений у профілі курʼєра — оновлюємо його (weekly_price), щоб надалі
+  // борг/квоти рахувались вже за новим тарифом.
+  async function confirmCashPayment(courierId: string, paidAt: string) {
+    const tariffNum = Number(cashTariff) || 0;
+    const rentNum = Number(cashRentAmount) || 0;
+    const depositNum = Number(cashDepositAmount) || 0;
+    const { weeks, days, leftover, dayRate } = breakdownRentDays(rentNum, tariffNum);
+    const parts: string[] = [];
+    if (weeks > 0) parts.push(`${weeks} ${weeksWord(weeks)}`);
+    if (days > 0) parts.push(`${days} ${daysWord(days)}`);
+    const breakdownText = parts.length > 0 ? parts.join(" ") : "менше дня";
+    const total = rentNum + depositNum;
+    const confirmText =
+      `Тариф: ${tariffNum} грн/тиж (${Math.round(dayRate)} грн/день)\n` +
+      `Оренда: ${rentNum} грн → ${breakdownText}${leftover > 0 ? ` + залишок ${leftover} грн` : ""}\n` +
+      (depositNum > 0 ? `Завдаток: ${depositNum} грн\n` : "") +
+      `Разом: ${total} грн\n\n` +
+      `Тариф правильний? Зберегти готівковий платіж?`;
+    if (!confirm(confirmText)) return;
+
+    const current = couriers.find(c => c.id === courierId) ?? (selected?.id === courierId ? selected : null);
+    if (current && tariffNum > 0 && tariffNum !== getWeeklyPrice(current)) {
+      await saveNumberField(courierId, "weekly_price", String(tariffNum));
+    }
+
+    await handleCashPayment(courierId, paidAt);
+  }
+
   function handleReturnScooter() {
     if (!selected) return;
     setShowReturnOptions(true);
@@ -1146,34 +1209,16 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
-                            {!isFailed && period && scooterAmount > 0 && (() => {
-                              // Скільки днів/тижнів фактично "купує" ця сума за
-                              // тарифом курʼєра (а не завжди рівно тиждень, як
-                              // дата підписки — та лишається фіксованою +7 днів).
-                              // Якщо сума не ділиться рівно — залишок показуємо
-                              // окремо, а не округлюємо до зайвого дня.
-                              const weeklyPrice = getWeeklyPrice(selected);
-                              const dayRate = weeklyPrice > 0 ? weeklyPrice / 7 : 0;
-                              const totalDays = dayRate > 0 ? Math.floor(scooterAmount / dayRate + 1e-9) : 0;
-                              const weeksPaid = Math.floor(totalDays / 7);
-                              const daysPaid = totalDays % 7;
-                              const leftover = dayRate > 0 ? Math.round(scooterAmount - totalDays * dayRate) : scooterAmount;
-                              const parts: string[] = [];
-                              if (weeksPaid > 0) parts.push(`${weeksPaid} ${weeksWord(weeksPaid)}`);
-                              if (daysPaid > 0) parts.push(`${daysPaid} ${daysWord(daysPaid)}`);
-                              return (
-                                <>
-                                  <p className="text-slate-400 text-[11px] mt-0.5">
-                                    Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
-                                  </p>
-                                  <p className="text-slate-400 text-[11px]">
-                                    {parts.length > 0 ? `Проплачено: ${parts.join(" ")}` : "Проплачено: менше дня"}
-                                    {leftover > 0 && ` · залишок ${leftover} грн`}
-                                    {dayRate > 0 && ` · ≈${Math.round(dayRate)} грн/день`}
-                                  </p>
-                                </>
-                              );
-                            })()}
+                            {!isFailed && period && scooterAmount > 0 && (
+                              <>
+                                <p className="text-slate-400 text-[11px] mt-0.5">
+                                  Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
+                                </p>
+                                <p className="text-slate-400 text-[11px]">
+                                  {formatRentDaysBreakdown(scooterAmount, getWeeklyPrice(selected))}
+                                </p>
+                              </>
+                            )}
                             {!isFailed && hasBreakdown && (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 <p className="flex justify-between gap-3">
@@ -1355,6 +1400,16 @@ export default function AdminCouriersPage() {
                   ) : (
                     <>
                       <div className="flex gap-2 items-center">
+                        <span className="text-slate-500 text-xs w-20 shrink-0">Тариф</span>
+                        <input
+                          type="number"
+                          value={cashTariff}
+                          onChange={e => setCashTariff(e.target.value)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                      </div>
+                      <div className="flex gap-2 items-center">
                         <span className="text-slate-500 text-xs w-20 shrink-0">Оренда</span>
                         <input
                           type="number"
@@ -1364,6 +1419,9 @@ export default function AdminCouriersPage() {
                         />
                         <span className="text-slate-400 text-xs shrink-0">грн</span>
                       </div>
+                      <p className="text-slate-500 text-[11px] -mt-1">
+                        {formatRentDaysBreakdown(Number(cashRentAmount) || 0, Number(cashTariff) || 0)}
+                      </p>
                       <div className="flex gap-2 items-center">
                         <span className="text-slate-500 text-xs w-20 shrink-0">Завдаток</span>
                         <input
@@ -1381,7 +1439,7 @@ export default function AdminCouriersPage() {
                   )}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleCashPayment(selected.id, cashPaymentDate)}
+                      onClick={() => confirmCashPayment(selected.id, cashPaymentDate)}
                       disabled={cashPaymentLoading || cashPreviewLoading || !cashPaymentDate}
                       className="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
                     >

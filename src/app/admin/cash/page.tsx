@@ -12,6 +12,16 @@ type CashEntry = {
   deleted_at: string | null;
 };
 
+type CashEntryEdit = {
+  id: string;
+  entry_id: string;
+  old_amount: number;
+  old_comment: string | null;
+  new_amount: number;
+  new_comment: string | null;
+  edited_at: string;
+};
+
 const CITIES = ["Луцьк", "Рівне", "Львів"];
 
 export default function AdminCashPage() {
@@ -27,6 +37,8 @@ export default function AdminCashPage() {
   const [editComment, setEditComment] = useState("");
   const [editSign, setEditSign] = useState<1 | -1>(1);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [edits, setEdits] = useState<CashEntryEdit[]>([]);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("admin_auth") !== "true") {
@@ -38,12 +50,14 @@ export default function AdminCashPage() {
 
   async function loadEntries() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("cash_entries")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) console.error("loadEntries failed", error);
-    setEntries(data || []);
+    const [entriesRes, editsRes] = await Promise.all([
+      supabase.from("cash_entries").select("*").order("created_at", { ascending: false }),
+      supabase.from("cash_entry_edits").select("*").order("edited_at", { ascending: false }),
+    ]);
+    if (entriesRes.error) console.error("loadEntries failed", entriesRes.error);
+    if (editsRes.error) console.error("loadEdits failed", editsRes.error);
+    setEntries(entriesRes.data || []);
+    setEdits(editsRes.data || []);
     setLoading(false);
   }
 
@@ -85,6 +99,28 @@ export default function AdminCashPage() {
     }
     const newAmount = editSign * num;
     const newComment = editComment.trim() || null;
+    if (newAmount === e.amount && newComment === e.comment) {
+      setEditingId(null);
+      return;
+    }
+    // Зберігаємо попереднє значення в історію редагувань ПЕРЕД перезаписом,
+    // щоб завжди було видно, що саме й коли змінили.
+    const { data: editRow, error: editError } = await supabase
+      .from("cash_entry_edits")
+      .insert({
+        entry_id: e.id,
+        old_amount: e.amount,
+        old_comment: e.comment,
+        new_amount: newAmount,
+        new_comment: newComment,
+      })
+      .select()
+      .single();
+    if (editError) {
+      console.error("saveEdit history insert failed", editError);
+      alert(`Не вдалося зберегти історію редагування: ${editError.message}`);
+      return;
+    }
     const { error } = await supabase
       .from("cash_entries")
       .update({ amount: newAmount, comment: newComment })
@@ -95,6 +131,7 @@ export default function AdminCashPage() {
       return;
     }
     setEntries(prev => prev.map(x => (x.id === e.id ? { ...x, amount: newAmount, comment: newComment } : x)));
+    if (editRow) setEdits(prev => [editRow as CashEntryEdit, ...prev]);
     setEditingId(null);
   }
 
@@ -209,58 +246,92 @@ export default function AdminCashPage() {
             <div className="p-8 text-center text-slate-400">Записів ще немає</div>
           ) : (
             <div className="divide-y divide-slate-50">
-              {activeEntries.map(e => (
-                <div key={e.id} className="px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
-                  {editingId === e.id ? (
-                    <>
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          onClick={() => setEditSign(1)}
-                          className={`px-2 py-1 rounded-lg text-xs font-medium ${editSign === 1 ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}
-                        >
-                          +
-                        </button>
-                        <button
-                          onClick={() => setEditSign(-1)}
-                          className={`px-2 py-1 rounded-lg text-xs font-medium ${editSign === -1 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500"}`}
-                        >
-                          −
-                        </button>
+              {activeEntries.map(e => {
+                const history = edits.filter(h => h.entry_id === e.id);
+                return (
+                <div key={e.id}>
+                  <div className="px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+                    {editingId === e.id ? (
+                      <>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => setEditSign(1)}
+                            className={`px-2 py-1 rounded-lg text-xs font-medium ${editSign === 1 ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={() => setEditSign(-1)}
+                            className={`px-2 py-1 rounded-lg text-xs font-medium ${editSign === -1 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500"}`}
+                          >
+                            −
+                          </button>
+                        </div>
+                        <input
+                          type="number"
+                          value={editAmount}
+                          onChange={ev => setEditAmount(ev.target.value)}
+                          className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={editComment}
+                          onChange={ev => setEditComment(ev.target.value)}
+                          placeholder="Коментар"
+                          className="flex-1 min-w-[8rem] rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                        />
+                        <button onClick={() => saveEdit(e)} className="text-xs text-blue-600 hover:underline shrink-0">Зберегти</button>
+                        <button onClick={() => setEditingId(null)} className="text-xs text-slate-400 hover:underline shrink-0">Скасувати</button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-24 shrink-0">
+                          <span className={`font-semibold ${e.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {e.amount >= 0 ? "+" : ""}
+                            {e.amount.toLocaleString("uk-UA")} грн
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0 text-sm text-slate-600 truncate">
+                          {e.comment || <span className="text-slate-300">без коментаря</span>}
+                        </div>
+                        <div className="text-xs text-slate-400 shrink-0">{new Date(e.created_at).toLocaleString("uk-UA")}</div>
+                        {history.length > 0 && (
+                          <button
+                            onClick={() => setExpandedHistoryId(id => (id === e.id ? null : e.id))}
+                            className="text-xs text-amber-600 hover:underline shrink-0"
+                          >
+                            {expandedHistoryId === e.id ? "Сховати історію" : `Змінено (${history.length})`}
+                          </button>
+                        )}
+                        <button onClick={() => startEdit(e)} className="text-xs text-slate-400 hover:text-slate-700 shrink-0">Редагувати</button>
+                        <button onClick={() => deleteEntry(e)} className="text-xs text-slate-400 hover:text-red-600 shrink-0">Видалити</button>
+                      </>
+                    )}
+                  </div>
+                  {expandedHistoryId === e.id && history.length > 0 && (
+                    <div className="px-4 pb-3 -mt-1">
+                      <div className="bg-amber-50 border border-amber-100 rounded-lg p-2 text-xs space-y-1.5">
+                        <p className="text-amber-700 font-medium">Історія редагувань (незмінна)</p>
+                        {history.map(h => (
+                          <p key={h.id} className="text-slate-600">
+                            {new Date(h.edited_at).toLocaleString("uk-UA")}:{" "}
+                            <span className={h.old_amount >= 0 ? "text-emerald-600" : "text-red-600"}>
+                              {h.old_amount >= 0 ? "+" : ""}
+                              {h.old_amount.toLocaleString("uk-UA")} грн{h.old_comment ? ` (${h.old_comment})` : ""}
+                            </span>
+                            {" → "}
+                            <span className={h.new_amount >= 0 ? "text-emerald-600" : "text-red-600"}>
+                              {h.new_amount >= 0 ? "+" : ""}
+                              {h.new_amount.toLocaleString("uk-UA")} грн{h.new_comment ? ` (${h.new_comment})` : ""}
+                            </span>
+                          </p>
+                        ))}
                       </div>
-                      <input
-                        type="number"
-                        value={editAmount}
-                        onChange={ev => setEditAmount(ev.target.value)}
-                        className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                      />
-                      <input
-                        type="text"
-                        value={editComment}
-                        onChange={ev => setEditComment(ev.target.value)}
-                        placeholder="Коментар"
-                        className="flex-1 min-w-[8rem] rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                      />
-                      <button onClick={() => saveEdit(e)} className="text-xs text-blue-600 hover:underline shrink-0">Зберегти</button>
-                      <button onClick={() => setEditingId(null)} className="text-xs text-slate-400 hover:underline shrink-0">Скасувати</button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-24 shrink-0">
-                        <span className={`font-semibold ${e.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {e.amount >= 0 ? "+" : ""}
-                          {e.amount.toLocaleString("uk-UA")} грн
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0 text-sm text-slate-600 truncate">
-                        {e.comment || <span className="text-slate-300">без коментаря</span>}
-                      </div>
-                      <div className="text-xs text-slate-400 shrink-0">{new Date(e.created_at).toLocaleString("uk-UA")}</div>
-                      <button onClick={() => startEdit(e)} className="text-xs text-slate-400 hover:text-slate-700 shrink-0">Редагувати</button>
-                      <button onClick={() => deleteEntry(e)} className="text-xs text-slate-400 hover:text-red-600 shrink-0">Видалити</button>
-                    </>
+                    </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

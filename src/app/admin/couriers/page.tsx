@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
-import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -72,6 +72,31 @@ function weeksAheadPaid(expiresAt: string): number {
   const diffMs = new Date(expiresAt).getTime() - Date.now();
   if (diffMs <= 0) return 0;
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
+}
+
+// Відтворює той самий ланцюжок "+7 днів", що й бекенд (nextExpiryFrom), але
+// по кожному окремому платежу з історії — щоб показати, який саме період
+// (з якої по яку дату) покрила КОЖНА оплата, а не лише фінальну дату
+// підписки. Платежі беруться в хронологічному порядку; якщо на момент
+// оплати попередній період ще не скінчився (оплата наперед) — новий період
+// рахується від кінця попереднього, інакше — від дати самої оплати.
+function computePaymentPeriods(payments: PaymentRecord[]): Record<string, { start: Date; end: Date }> {
+  const ordered = payments
+    .filter(p => p.status !== "failed")
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const periods: Record<string, { start: Date; end: Date }> = {};
+  let runningEnd: Date | null = null;
+  for (const p of ordered) {
+    const paidAt = new Date(p.created_at);
+    const start: Date = runningEnd && runningEnd.getTime() > paidAt.getTime() ? runningEnd : paidAt;
+    const end: Date = new Date(start);
+    end.setDate(end.getDate() + 7);
+    periods[p.id] = { start, end };
+    runningEnd = end;
+  }
+  return periods;
 }
 
 export default function AdminCouriersPage() {
@@ -148,6 +173,68 @@ export default function AdminCouriersPage() {
     }
   }
 
+  // Перераховує "Оплата з" / "Оплата до" підписки кур'єра за тим самим
+  // ланцюжком "+7 днів" по історії платежів (computePaymentPeriods) і знімає
+  // борг. Викликається лише коли відредагований платіж — найостанніший
+  // успішний платіж кур'єра: виправлення дати/суми щойно внесеної готівкової
+  // оплати одразу узгоджує "Підписку" й статус Активний/Боржник, а не
+  // лишається розсинхронізованим зі старою датою.
+  async function resyncSubscriptionFromPayments(courierId: string, payments: PaymentRecord[]) {
+    const successPayments = payments
+      .filter(p => p.status !== "failed")
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (successPayments.length === 0) return;
+
+    const periods = computePaymentPeriods(successPayments);
+    const last = successPayments[successPayments.length - 1];
+    const lastPeriod = periods[last.id];
+    if (!lastPeriod) return;
+
+    const newExpiresAt = lastPeriod.end.toISOString();
+    const newPaidAt = new Date(last.created_at).toISOString();
+    const existingSubId = subsByCourier[courierId]?.id;
+
+    if (existingSubId) {
+      const { error } = await supabase
+        .from("subscriptions")
+        .update({ expires_at: newExpiresAt, paid_at: newPaidAt, amount: last.amount })
+        .eq("id", existingSubId);
+      if (error) {
+        console.error("resyncSubscriptionFromPayments: subscription update failed", error);
+        return;
+      }
+    } else {
+      const { error } = await supabase.from("subscriptions").insert({
+        courier_id: courierId,
+        amount: last.amount,
+        status: "active",
+        expires_at: newExpiresAt,
+        paid_at: newPaidAt,
+        wayforpay_id: `cash_${Date.now()}`,
+      });
+      if (error) {
+        console.error("resyncSubscriptionFromPayments: subscription insert failed", error);
+        return;
+      }
+    }
+
+    setSubsByCourier(prev => ({
+      ...prev,
+      [courierId]: { id: existingSubId || prev[courierId]?.id || "", expires_at: newExpiresAt, paid_at: newPaidAt, amount: last.amount },
+    }));
+
+    const { error: courierError } = await supabase
+      .from("couriers")
+      .update({ status: "active", debt_since: null, debt_amount: null, debt_auto: false })
+      .eq("id", courierId);
+    if (courierError) {
+      console.error("resyncSubscriptionFromPayments: courier update failed", courierError);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : c));
+    setSelected(prev => prev && prev.id === courierId ? { ...prev, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : prev);
+  }
+
   async function updatePaymentDate(paymentId: string, courierId: string, date: string) {
     if (!date) return;
     const value = new Date(date).toISOString();
@@ -157,11 +244,15 @@ export default function AdminCouriersPage() {
       alert(`Не вдалося зберегти дату оплати: ${error.message}`);
       return;
     }
-    setCourierPayments(prev =>
-      prev
-        .map(p => p.id === paymentId ? { ...p, created_at: value } : p)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    );
+    const updated = courierPayments
+      .map(p => p.id === paymentId ? { ...p, created_at: value } : p)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setCourierPayments(updated);
+
+    const latest = updated.find(p => p.status !== "failed");
+    if (latest && latest.id === paymentId) {
+      await resyncSubscriptionFromPayments(courierId, updated);
+    }
   }
 
   async function updatePaymentAmount(paymentId: string, amountStr: string) {
@@ -173,7 +264,14 @@ export default function AdminCouriersPage() {
       alert(`Не вдалося зберегти суму оплати: ${error.message}`);
       return;
     }
-    setCourierPayments(prev => prev.map(p => p.id === paymentId ? { ...p, amount } : p));
+    const updated = courierPayments.map(p => p.id === paymentId ? { ...p, amount } : p);
+    setCourierPayments(updated);
+
+    const sortedDesc = [...updated].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const latest = sortedDesc.find(p => p.status !== "failed");
+    if (latest && latest.id === paymentId && selected) {
+      await resyncSubscriptionFromPayments(selected.id, updated);
+    }
   }
 
   async function loadCourierPayments(courierId: string) {
@@ -253,7 +351,15 @@ export default function AdminCouriersPage() {
     const c = couriers.find(x => x.id === id) ?? (selected?.id === id ? selected : null);
     const patch: Record<string, unknown> = { no_penalty: value };
     if (c && c.status === "debtor" && c.debt_auto && c.debt_since) {
-      patch.debt_amount = calculateAutoDebt(getWeeklyPrice(c), c.debt_since, value);
+      const sub = subsByCourier[id];
+      const expiresAt: Date = sub
+        ? new Date(sub.expires_at)
+        : (() => {
+            const d = new Date(c.debt_since as string);
+            d.setDate(d.getDate() - DEBT_GRACE_DAYS);
+            return d;
+          })();
+      patch.debt_amount = calculateAutoDebt(getWeeklyPrice(c), expiresAt, c.debt_since, value);
     }
     const { error } = await supabase.from("couriers").update(patch).eq("id", id);
     if (error) {
@@ -981,12 +1087,13 @@ export default function AdminCouriersPage() {
                   <p className="text-slate-300 text-sm">Платежів ще немає</p>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {courierPayments.map((p) => {
+                    {(() => { const paymentPeriods = computePaymentPeriods(courierPayments); return courierPayments.map((p) => {
                       const isFailed = p.status === "failed";
                       const deposit = p.deposit || 0;
                       const batteryAmount = p.battery_amount || 0;
                       const scooterAmount = p.amount - deposit - batteryAmount;
                       const hasBreakdown = deposit > 0 || batteryAmount > 0;
+                      const period = paymentPeriods[p.id];
                       return (
                         <div key={p.id} className={`flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 ${isFailed ? "opacity-70" : ""}`}>
                           <div>
@@ -1004,6 +1111,12 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
+                            {!isFailed && period && scooterAmount > 0 && (
+                              <p className="text-slate-400 text-[11px] mt-0.5">
+                                Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
+                                {" · "}≈{Math.round(scooterAmount / 7)} грн/день (7 днів)
+                              </p>
+                            )}
                             {!isFailed && hasBreakdown && (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 <p className="flex justify-between gap-3">
@@ -1037,7 +1150,7 @@ export default function AdminCouriersPage() {
                           )}
                         </div>
                       );
-                    })}
+                    }); })()}
                   </div>
                 )}
               </div>
@@ -1064,14 +1177,24 @@ export default function AdminCouriersPage() {
                     />
                   </div>
                   {selected.debt_since && (() => {
-                    const baseAmount = getWeeklyPrice(selected);
+                    const weeklyPrice = getWeeklyPrice(selected);
+                    const sub = subsByCourier[selected.id];
+                    const expiresAt: Date = sub
+                      ? new Date(sub.expires_at)
+                      : (() => {
+                          const d = new Date(selected.debt_since as string);
+                          d.setDate(d.getDate() - DEBT_GRACE_DAYS);
+                          return d;
+                        })();
+                    const rentDays = daysOverdue(expiresAt);
+                    const baseAmount = calculateOwedRent(weeklyPrice, rentDays);
                     const days = daysSinceDebt(selected.debt_since);
                     const penalty = selected.no_penalty ? 0 : days * DEBT_PENALTY_PER_DAY;
                     const computedTotal = baseAmount + penalty;
                     return (
                       <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-xs space-y-0.5">
                         <p className="flex justify-between text-slate-600">
-                          <span>Борг за підписку</span><span>{baseAmount} грн</span>
+                          <span>{rentDays > 0 ? `Борг за підписку (${rentDays} ${daysWord(rentDays)} прострочення)` : "Борг за підписку"}</span><span>{baseAmount} грн</span>
                         </p>
                         <p className="flex justify-between text-slate-600">
                           <span>{selected.no_penalty ? "Пеня вимкнена" : `Пеня (${days} ${daysWord(days)} × ${DEBT_PENALTY_PER_DAY} грн)`}</span><span>{penalty} грн</span>

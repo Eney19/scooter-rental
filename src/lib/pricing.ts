@@ -29,9 +29,19 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     if (noPenalty) return 0;
     return Math.max(0, daysLate) * PENALTY_PER_DAY;
   }
-  
-  export function totalWithPenalty(baseAmount: number, daysLate: number, noPenalty = false): number {
-    return baseAmount + calculatePenalty(daysLate, noPenalty);
+
+  // Скільки орендної плати (без пені) кур'єр фактично винен. Якщо прострочення
+  // немає (daysLate<=0) — звичайна оплата: рівно один тижневий тариф, як і
+  // раніше. Якщо прострочено — тариф пропорційно дням прострочення (тижневий
+  // тариф / 7 × кількість днів), а НЕ завжди фіксовано один тиждень: інакше
+  // боржник за 3 тижні платив би стільки ж, скільки за кілька днів.
+  export function calculateOwedRent(weeklyPrice: number, daysLate: number): number {
+    if (daysLate <= 0) return weeklyPrice;
+    return Math.round((weeklyPrice / 7) * daysLate);
+  }
+
+  export function totalWithPenalty(weeklyPrice: number, daysLate: number, noPenalty = false): number {
+    return calculateOwedRent(weeklyPrice, daysLate) + calculatePenalty(daysLate, noPenalty);
   }
 
   // Завдаток за скутер — стягується лише один раз, при першій оплаті кур'єра.
@@ -95,9 +105,13 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
   }
 
-  // Автоматична сума боргу: базова сума (тиждень оренди, який не оплатили) +
-  // пеня DEBT_PENALTY_PER_DAY грн за кожен день з моменту, коли кур'єр став боржником.
-  export function calculateAutoDebt(baseAmount: number, debtSince: string | Date, noPenalty = false): number {
-    if (noPenalty) return baseAmount;
-    return baseAmount + daysSinceDebt(debtSince) * DEBT_PENALTY_PER_DAY;
+  // Автоматична сума боргу: орендна плата за весь прострочений період
+  // (пропорційно дням з моменту закінчення підписки, calculateOwedRent) +
+  // пеня DEBT_PENALTY_PER_DAY грн за кожен день з моменту, коли кур'єр
+  // офіційно став боржником (debtSince, з пільговим днем — може трохи
+  // відставати від daysLate, рахованого від самого expiresAt).
+  export function calculateAutoDebt(weeklyPrice: number, expiresAt: string | Date, debtSince: string | Date, noPenalty = false): number {
+    const rent = calculateOwedRent(weeklyPrice, daysOverdue(expiresAt));
+    if (noPenalty) return rent;
+    return rent + daysSinceDebt(debtSince) * DEBT_PENALTY_PER_DAY;
   }

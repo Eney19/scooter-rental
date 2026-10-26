@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
-import { openRentalPeriod } from "@/lib/rental-history";
+import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
+import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
 export async function POST(req: NextRequest) {
@@ -33,11 +33,12 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-    // Завдаток за скутер стягується лише при першій оплаті кур'єра (як і в
-    // онлайн-оплаті), і теж залежить від міста. Адмін бачить ці суми
+    // Завдаток за скутер стягується на кожне нове взяття скутера (коли в
+    // кур'єра зараз немає відкритого періоду оренди) — так само і в
+    // онлайн-оплаті, і теж залежить від міста. Адмін бачить ці суми
     // заздалегідь (cash-payment-preview) і може їх відредагувати — якщо
     // передані rentOverride/depositOverride, довіряємо їм замість перерахунку.
-    const firstPayment = await isFirstPayment(courierId);
+    const firstPayment = await shouldChargeDeposit(courierId);
     const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
     const deposit = typeof depositOverride === "number" ? depositOverride : (firstPayment ? getDepositAmount(courier.city) : 0);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);

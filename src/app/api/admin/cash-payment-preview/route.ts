@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { isFirstPayment } from "@/lib/subscription";
+import { shouldChargeDeposit } from "@/lib/rental-history";
 
 // Рахує, скільки готівки очікувати від кур'єра (оренда + завдаток, якщо
 // перша оплата) — та сама логіка, що і в admin/cash-payment, але без
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
     const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
-    const firstPayment = await isFirstPayment(courierId);
+    const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;

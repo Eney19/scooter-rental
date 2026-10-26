@@ -10,7 +10,7 @@ import {
   daysSinceDebt,
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
-import { isFirstPayment } from "@/lib/subscription";
+import { shouldChargeDeposit } from "@/lib/rental-history";
 import { requestCashPayment } from "@/lib/cash-request";
 
 // Особистий кабінет курʼєра в Telegram-боті (замінив сторінку /cabinet на сайті).
@@ -251,7 +251,7 @@ async function getQuote(courier: Courier) {
       : totalWithPenalty(baseWeekly, late, !!courier.no_penalty);
   const penalty = Math.max(0, rentAmount - baseWeekly);
 
-  const first = await isFirstPayment(courier.id);
+  const first = await shouldChargeDeposit(courier.id);
   const deposit = first ? getDepositAmount(courier.city) : 0;
 
   return {

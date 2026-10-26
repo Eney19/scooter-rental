@@ -17,17 +17,6 @@ export function nextExpiryFrom(currentExpiresAt: string | Date | null | undefine
   return next;
 }
 
-// Перша оплата кур'єра (ще немає жодної підписки) — саме тоді додатково
-// стягується одноразовий завдаток за скутер (сума залежить від міста).
-// Використовується однаково для онлайн- і готівкової оплати.
-export async function isFirstPayment(courierId: string): Promise<boolean> {
-  const { count } = await supabaseAdmin
-    .from("subscriptions")
-    .select("id", { count: "exact", head: true })
-    .eq("courier_id", courierId);
-  return !count;
-}
-
 // Активація кур'єра після (готівкової) оплати — це один update(), від якого
 // залежить, чи побачить адмін курʼєра як "Активний", а не той факт, що
 // платіж/підписка вже записані. Раніше результат цього update() ніде не

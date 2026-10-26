@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, daysSinceDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, calculateOwedRent, calculatePenalty, daysOverdue, daysSinceDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -77,8 +77,12 @@ export async function GET(req: NextRequest) {
       const wasAlreadyDebtor = courier.status === "debtor";
       const debtSince = courier.debt_since || calculateDebtSince(sub.expires_at).toISOString();
       const baseAmount = getWeeklyPrice(courier);
-      const debtAmount = calculateAutoDebt(baseAmount, debtSince, !!courier.no_penalty);
-      const penalty = debtAmount - baseAmount;
+      // Орендна плата порахована пропорційно дням прострочення (а не завжди
+      // фіксовано один тиждень) — rentOwed може бути більшим за baseAmount,
+      // якщо прострочено більше ніж на тиждень.
+      const rentOwed = calculateOwedRent(baseAmount, daysOverdue(sub.expires_at));
+      const penalty = calculatePenalty(daysSinceDebt(debtSince), !!courier.no_penalty);
+      const debtAmount = calculateAutoDebt(baseAmount, sub.expires_at, debtSince, !!courier.no_penalty);
 
       await supabaseAdmin
         .from("couriers")
@@ -99,7 +103,7 @@ export async function GET(req: NextRequest) {
           courier.telegram_chat_id,
           `🔴 <b>Заборгованість</b>\n\n` +
           `Підписку прострочено, і скутер не повернуто. Ваш статус змінено на "Боржник".\n\n` +
-          `Оренда за наступні 7 днів: <b>${baseAmount} грн</b>\n` +
+          `Оренда за прострочений період: <b>${rentOwed} грн</b>\n` +
           (courier.no_penalty
             ? `Разом до сплати: <b>${debtAmount} грн</b>\n\n` +
               `Оплатіть онлайн у боті, зверніться до адміністратора або здайте скутер.`

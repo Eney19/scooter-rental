@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
+import { shouldChargeDeposit } from "@/lib/rental-history";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
@@ -55,13 +56,10 @@ export async function POST(req: NextRequest) {
     ? courier.debt_amount
     : totalWithPenalty(baseAmount, late, !!courier.no_penalty);
 
-  // Завдаток стягується лише при першій оплаті кур'єра (ще немає жодної підписки)
-  const { count: subsCount } = await supabaseAdmin
-    .from("subscriptions")
-    .select("id", { count: "exact", head: true })
-    .eq("courier_id", courierId);
-  const isFirstPayment = !subsCount;
-  const deposit = isFirstPayment ? getDepositAmount(courier.city) : 0;
+  // Завдаток стягується на кожне нове взяття скутера (коли в кур'єра зараз
+  // немає відкритого періоду оренди), а не лише раз за все життя акаунта.
+  const chargeDeposit = await shouldChargeDeposit(courierId);
+  const deposit = chargeDeposit ? getDepositAmount(courier.city) : 0;
 
   const amountUAH = rentAmount + deposit;
     const amountKopecks = amountUAH * 100; // Monobank приймає суму в копійках

@@ -45,6 +45,36 @@ export async function openRentalPeriod(courierId: string, snapshot: PeriodSnapsh
   }
 }
 
+// Чи є в кур'єра зараз відкритий період оренди (ще не здав скутер).
+// Використовується, щоб вирішити, чи стягувати завдаток: завдаток береться
+// на кожне НОВЕ взяття скутера (коли відкритого періоду ще нема), а не лише
+// раз за все життя акаунта кур'єра.
+export async function hasOpenRentalPeriod(courierId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("rental_periods")
+      .select("id")
+      .eq("courier_id", courierId)
+      .is("ended_at", null)
+      .maybeSingle();
+    if (error) {
+      console.error("hasOpenRentalPeriod error:", error);
+      return false;
+    }
+    return !!data;
+  } catch (e) {
+    console.error("hasOpenRentalPeriod error:", e);
+    return false;
+  }
+}
+
+// Чи стягувати завдаток за скутер з цього платежу — так, якщо немає
+// відкритого періоду оренди (перша оплата кур'єра або повторне взяття
+// скутера після попередньої здачі).
+export async function shouldChargeDeposit(courierId: string): Promise<boolean> {
+  return !(await hasOpenRentalPeriod(courierId));
+}
+
 // Викликати, коли кур'єр здає скутер (стає "неактивний") — закриваємо
 // поточний відкритий період оренди датою повернення.
 export async function closeRentalPeriod(courierId: string, endedAt: string = new Date().toISOString()): Promise<void> {

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { nextExpiryFrom, isFirstPayment, activateCourier } from "@/lib/subscription";
-import { openRentalPeriod } from "@/lib/rental-history";
+import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
+import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 import { normalizePhone } from "@/lib/phone";
 import { handleCourierText, handleCourierCallback, sendCourierMenu } from "@/lib/courier-bot";
@@ -83,8 +83,9 @@ export async function POST(req: NextRequest) {
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
         const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
-        // Завдаток за скутер — лише при першій оплаті кур'єра, залежить від міста.
-        const firstPayment = await isFirstPayment(courierId);
+        // Завдаток за скутер — на кожне нове взяття скутера (коли немає
+        // відкритого періоду оренди), залежить від міста.
+        const firstPayment = await shouldChargeDeposit(courierId);
         const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
         const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
         const scooterAmount = rentAmount - batteryAmount;

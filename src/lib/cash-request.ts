@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
-import { isFirstPayment } from "@/lib/subscription";
+import { shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -22,7 +22,7 @@ export async function requestCashPayment(courierId: string): Promise<{ ok: boole
   const rentAmount = getWeeklyPrice(courier);
   // Лише для інформації адміну — скільки готівки очікувати, з завдатком за
   // скутер, якщо це перша оплата курʼєра (сам завдаток по містах — @lib/pricing).
-  const firstPayment = await isFirstPayment(courierId);
+  const firstPayment = await shouldChargeDeposit(courierId);
   const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
   const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
   const scooterAmount = rentAmount - batteryAmount;

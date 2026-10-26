@@ -6,7 +6,8 @@ import {
   getDepositAmount,
   getWeeklyPrice,
   daysOverdue,
-  totalWithPenalty,
+  calculateOwedRent,
+  calculatePenalty,
   daysSinceDebt,
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
@@ -56,6 +57,7 @@ type Courier = {
   return_signed_at: string | null;
   debt_since: string | null;
   debt_amount: number | null;
+  debt_auto: boolean | null;
   no_penalty: boolean | null;
 };
 
@@ -71,7 +73,7 @@ type CallbackQuery = {
 
 const COURIER_COLUMNS =
   "id, full_name, phone, city, status, weekly_price, scooter_model, battery_types, " +
-  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, no_penalty";
+  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
 
@@ -245,21 +247,22 @@ async function getQuote(courier: Courier) {
     .maybeSingle();
 
   const late = lastActive ? daysOverdue(lastActive.expires_at) : 0;
-  const rentAmount =
-    courier.status === "debtor" && typeof courier.debt_amount === "number"
-      ? courier.debt_amount
-      : totalWithPenalty(baseWeekly, late, !!courier.no_penalty);
-  const penalty = Math.max(0, rentAmount - baseWeekly);
+  // Якщо адмін вручну зафіксував суму боргу (debt_auto=false) — довіряємо їй,
+  // інакше рахуємо наживо (пропорційно дням прострочення), а не з можливо
+  // застарілого couriers.debt_amount.
+  const useManualOverride = courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number";
+  const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(baseWeekly, late);
+  const penalty = useManualOverride ? 0 : calculatePenalty(late, !!courier.no_penalty);
 
   const first = await shouldChargeDeposit(courier.id);
   const deposit = first ? getDepositAmount(courier.city) : 0;
 
   return {
-    scooterAmount: baseWeekly - batteryAmount,
+    scooterAmount: rentOwed - batteryAmount,
     batteryAmount,
     penalty,
     deposit,
-    total: rentAmount + deposit,
+    total: rentOwed + penalty + deposit,
   };
 }
 
@@ -294,17 +297,21 @@ async function sendStatus(chatId: number, courier: Courier) {
       text += `📅 Підписка закінчилась: ${fmtDate(sub.expires_at)}\n`;
     }
   }
-  if (status === "debtor" && courier.debt_amount) {
-    // Борг окремо, пеня окремо, разом — так само, як у щоденному
-    // повідомленні про заборгованість (cron debtor-check).
-    const base = getWeeklyPrice(courier);
-    const penalty = Math.max(0, courier.debt_amount - base);
-    text += `\n💸 <b>Заборгованість</b>\nБорг за підписку: ${base} грн\n`;
+  if (status === "debtor") {
+    // Борг окремо (пропорційно дням прострочення), пеня окремо, разом —
+    // так само, як у щоденному повідомленні про заборгованість (cron debtor-check).
+    const weeklyPrice = getWeeklyPrice(courier);
+    const rentDays = sub ? daysOverdue(sub.expires_at) : 0;
+    const useManualOverride = courier.debt_auto === false && typeof courier.debt_amount === "number";
+    const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, rentDays);
+    const penaltyDays = courier.debt_since ? daysSinceDebt(courier.debt_since) : 0;
+    const penalty = useManualOverride ? 0 : calculatePenalty(penaltyDays, !!courier.no_penalty);
+    const total = rentOwed + penalty;
+    text += `\n💸 <b>Заборгованість</b>\nБорг за підписку${rentDays > 0 ? ` (${rentDays} ${daysWord(rentDays)} прострочення)` : ""}: ${rentOwed} грн\n`;
     if (penalty > 0) {
-      const days = courier.debt_since ? daysSinceDebt(courier.debt_since) : Math.round(penalty / DEBT_PENALTY_PER_DAY);
-      text += `Пеня (${days} ${daysWord(days)} × ${DEBT_PENALTY_PER_DAY} грн): ${penalty} грн\n`;
+      text += `Пеня (${penaltyDays} ${daysWord(penaltyDays)} × ${DEBT_PENALTY_PER_DAY} грн): ${penalty} грн\n`;
     }
-    text += `Разом до сплати: <b>${courier.debt_amount} грн</b>\n`;
+    text += `Разом до сплати: <b>${total} грн</b>\n`;
   }
   text += `\n${tariffLine(courier)}`;
 

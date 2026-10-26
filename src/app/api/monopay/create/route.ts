@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, no_penalty, telegram_chat_id")
+    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id")
     .eq("id", courierId)
     .single();
 
@@ -47,12 +47,10 @@ export async function POST(req: NextRequest) {
     .single();
 
   const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-  // Якщо кур'єр уже офіційно "Боржник" — беремо суму, яку йому вже показали
-  // (в адмінці й у Telegram-повідомленні про борг), а не рахуємо наново
-  // через daysOverdue: так кнопка "Оплатити" завжди відповідає тому, що
-  // курʼєр бачив у повідомленні, навіть якщо ці два розрахунки трохи
-  // розходяться в підрахунку днів.
-  const rentAmount = (courier.status === "debtor" && typeof courier.debt_amount === "number")
+  // Якщо адмін вручну зафіксував суму боргу (debt_auto=false) — довіряємо їй.
+  // Інакше рахуємо наживо (пропорційно дням прострочення), щоб сума завжди
+  // відповідала реальному стану, а не застарілому знімку з couriers.debt_amount.
+  const rentAmount = (courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number")
     ? courier.debt_amount
     : totalWithPenalty(baseAmount, late, !!courier.no_penalty);
 

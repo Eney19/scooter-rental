@@ -66,6 +66,25 @@ function daysWord(n: number): string {
   return "днів";
 }
 
+// Жива (не застаріла) сума боргу: якщо борг рахується автоматично
+// (debt_auto !== false) — рахуємо наживо, пропорційно дням прострочення,
+// а не читаємо збережене couriers.debt_amount (воно оновлюється лише раз
+// на день щоденним cron-ом або вручну, тож може відставати). Якщо адмін
+// вручну зафіксував суму (debt_auto === false) — довіряємо збереженому
+// значенню.
+function liveDebtAmount(c: Courier, sub?: SubInfo): number | null {
+  if (c.status !== "debtor" || !c.debt_since) return c.debt_amount ?? null;
+  if (c.debt_auto === false) return c.debt_amount ?? null;
+  const expiresAt: Date = sub
+    ? new Date(sub.expires_at)
+    : (() => {
+        const d = new Date(c.debt_since as string);
+        d.setDate(d.getDate() - DEBT_GRACE_DAYS);
+        return d;
+      })();
+  return calculateAutoDebt(getWeeklyPrice(c), expiresAt, c.debt_since, !!c.no_penalty);
+}
+
 // Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
 // (1 = оплачено лише поточний тиждень, 2+ = є оплата наперед).
 function weeksAheadPaid(expiresAt: string): number {
@@ -820,11 +839,14 @@ export default function AdminCouriersPage() {
                         })()}
                       </td>
                       <td className="px-4 py-3">
-                        {c.debt_amount ? (
-                          <span className="font-semibold text-red-600">{c.debt_amount.toLocaleString("uk-UA")} грн</span>
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
+                        {(() => {
+                          const amount = liveDebtAmount(c, subsByCourier[c.id]);
+                          return amount ? (
+                            <span className="font-semibold text-red-600">{amount.toLocaleString("uk-UA")} грн</span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3">
                         {c.contract_pdf_url ? (
@@ -1217,7 +1239,7 @@ export default function AdminCouriersPage() {
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
                     <input
                       type="number"
-                      value={selected.debt_amount ?? ""}
+                      value={liveDebtAmount(selected, subsByCourier[selected.id]) ?? selected.debt_amount ?? ""}
                       placeholder="0"
                       onChange={e => handleFieldChange("debt_amount" as keyof Courier, e.target.value)}
                       onBlur={e => saveDebtAmount(selected.id, e.target.value)}

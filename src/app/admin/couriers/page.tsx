@@ -1146,12 +1146,34 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
-                            {!isFailed && period && scooterAmount > 0 && (
-                              <p className="text-slate-400 text-[11px] mt-0.5">
-                                Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
-                                {" · "}≈{Math.round(scooterAmount / 7)} грн/день (7 днів)
-                              </p>
-                            )}
+                            {!isFailed && period && scooterAmount > 0 && (() => {
+                              // Скільки днів/тижнів фактично "купує" ця сума за
+                              // тарифом курʼєра (а не завжди рівно тиждень, як
+                              // дата підписки — та лишається фіксованою +7 днів).
+                              // Якщо сума не ділиться рівно — залишок показуємо
+                              // окремо, а не округлюємо до зайвого дня.
+                              const weeklyPrice = getWeeklyPrice(selected);
+                              const dayRate = weeklyPrice > 0 ? weeklyPrice / 7 : 0;
+                              const totalDays = dayRate > 0 ? Math.floor(scooterAmount / dayRate + 1e-9) : 0;
+                              const weeksPaid = Math.floor(totalDays / 7);
+                              const daysPaid = totalDays % 7;
+                              const leftover = dayRate > 0 ? Math.round(scooterAmount - totalDays * dayRate) : scooterAmount;
+                              const parts: string[] = [];
+                              if (weeksPaid > 0) parts.push(`${weeksPaid} ${weeksWord(weeksPaid)}`);
+                              if (daysPaid > 0) parts.push(`${daysPaid} ${daysWord(daysPaid)}`);
+                              return (
+                                <>
+                                  <p className="text-slate-400 text-[11px] mt-0.5">
+                                    Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
+                                  </p>
+                                  <p className="text-slate-400 text-[11px]">
+                                    {parts.length > 0 ? `Проплачено: ${parts.join(" ")}` : "Проплачено: менше дня"}
+                                    {leftover > 0 && ` · залишок ${leftover} грн`}
+                                    {dayRate > 0 && ` · ≈${Math.round(dayRate)} грн/день`}
+                                  </p>
+                                </>
+                              );
+                            })()}
                             {!isFailed && hasBreakdown && (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 <p className="flex justify-between gap-3">

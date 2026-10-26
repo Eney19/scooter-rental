@@ -1211,10 +1211,10 @@ export default function AdminCouriersPage() {
                             </p>
                             {!isFailed && period && scooterAmount > 0 && (
                               <>
-                                <p className="text-slate-400 text-[11px] mt-0.5">
+                                <p className="text-slate-500 text-xs mt-0.5">
                                   Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
                                 </p>
-                                <p className="text-slate-400 text-[11px]">
+                                <p className="text-slate-600 text-sm font-medium">
                                   {formatRentDaysBreakdown(scooterAmount, getWeeklyPrice(selected))}
                                 </p>
                               </>
@@ -1419,7 +1419,7 @@ export default function AdminCouriersPage() {
                         />
                         <span className="text-slate-400 text-xs shrink-0">грн</span>
                       </div>
-                      <p className="text-slate-500 text-[11px] -mt-1">
+                      <p className="text-slate-600 text-sm font-medium -mt-1">
                         {formatRentDaysBreakdown(Number(cashRentAmount) || 0, Number(cashTariff) || 0)}
                       </p>
                       <div className="flex gap-2 items-center">

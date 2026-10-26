@@ -81,6 +81,7 @@ export default function AdminQueuePage() {
           <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
           <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Черга</span>
+          <a href="/admin/cash" className="text-slate-500 hover:text-slate-700 shrink-0">Каса</a>
         </nav>
       </header>
 

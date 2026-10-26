@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -172,6 +172,7 @@ export default function AdminCouriersPage() {
   const [cashDepositAmount, setCashDepositAmount] = useState("");
   const [cashTariff, setCashTariff] = useState("");
   const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
+  const [issueBatteryId, setIssueBatteryId] = useState("");
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
@@ -464,6 +465,26 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: num } as Courier) : c));
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
+  }
+
+  // Адмін видає курʼєру акумулятор окремо від скутера (наприклад, курʼєр
+  // попросив акумулятор пізніше або поміняв на інший) — записуємо його в
+  // battery_types, щоб він додавався до тижневого тарифу в наступних
+  // розрахунках і квитанціях (готівка/онлайн), не чіпаючи тариф скутера.
+  async function issueBattery(courierId: string) {
+    if (!issueBatteryId) return;
+    const opt = BATTERY_OPTIONS.find(b => b.id === issueBatteryId);
+    if (!opt) return;
+    if (!confirm(`Видати курʼєру "${opt.label}"? Додасться +${opt.weeklyPrice} грн/тиж до тарифу в наступних розрахунках.`)) return;
+    const { error } = await supabase.from("couriers").update({ battery_types: [issueBatteryId] }).eq("id", courierId);
+    if (error) {
+      console.error("issueBattery failed", error);
+      alert(`Не вдалося зберегти: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, battery_types: [issueBatteryId] } : c));
+    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, battery_types: [issueBatteryId] } : null);
+    setIssueBatteryId("");
   }
 
   // Курʼєр здав акумулятор окремо від скутера (наприклад, перейшов на
@@ -1068,18 +1089,40 @@ export default function AdminCouriersPage() {
                     className={fieldInputClass}
                   />
                 </div>
-                {getBatteryLabels(selected.battery_types).length > 0 && (
-                  <div className="flex gap-2 items-center">
-                    <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
-                    <span className="text-slate-700 text-sm flex-1">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
-                    <button
-                      onClick={() => returnBattery(selected.id)}
-                      className="text-xs text-red-500 hover:text-red-700 shrink-0"
-                    >
-                      Здати
-                    </button>
-                  </div>
-                )}
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
+                  {getBatteryLabels(selected.battery_types).length > 0 ? (
+                    <>
+                      <span className="text-slate-700 text-sm flex-1">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
+                      <button
+                        onClick={() => returnBattery(selected.id)}
+                        className="text-xs text-red-500 hover:text-red-700 shrink-0"
+                      >
+                        Здати
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        value={issueBatteryId}
+                        onChange={e => setIssueBatteryId(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="">Без акумулятора</option>
+                        {BATTERY_OPTIONS.map(b => (
+                          <option key={b.id} value={b.id}>{b.label} ({b.weeklyPrice} грн/тиж)</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => issueBattery(selected.id)}
+                        disabled={!issueBatteryId}
+                        className="text-xs text-emerald-600 hover:text-emerald-700 shrink-0 disabled:opacity-40"
+                      >
+                        Видати
+                      </button>
+                    </>
+                  )}
+                </div>
                 <div className="flex gap-2 items-center">
                   <span className="text-slate-400 w-20 shrink-0">РНОКПП</span>
                   <input

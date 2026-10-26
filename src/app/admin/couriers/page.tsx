@@ -466,6 +466,22 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
   }
 
+  // Курʼєр здав акумулятор окремо від скутера (наприклад, перейшов на
+  // менший/без акумулятора) — прибираємо його з battery_types, щоб він
+  // більше не додавався до тижневого тарифу в наступних розрахунках і
+  // квитанціях (готівка/онлайн), не чіпаючи сам тариф скутера.
+  async function returnBattery(courierId: string) {
+    if (!confirm("Позначити акумулятор як зданий? Він більше не враховуватиметься в тарифі цього курʼєра.")) return;
+    const { error } = await supabase.from("couriers").update({ battery_types: [] }).eq("id", courierId);
+    if (error) {
+      console.error("returnBattery failed", error);
+      alert(`Не вдалося зберегти: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, battery_types: [] } : c));
+    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, battery_types: [] } : null);
+  }
+
   async function openCashDatePicker(courierId: string) {
     setCashPaymentDate(new Date().toISOString().slice(0, 10));
     setCashRentAmount("");
@@ -1055,7 +1071,13 @@ export default function AdminCouriersPage() {
                 {getBatteryLabels(selected.battery_types).length > 0 && (
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
-                    <span className="text-slate-700 text-sm">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
+                    <span className="text-slate-700 text-sm flex-1">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
+                    <button
+                      onClick={() => returnBattery(selected.id)}
+                      className="text-xs text-red-500 hover:text-red-700 shrink-0"
+                    >
+                      Здати
+                    </button>
                   </div>
                 )}
                 <div className="flex gap-2 items-center">

@@ -35,9 +35,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // раніше. Якщо прострочено — тариф пропорційно дням прострочення (тижневий
   // тариф / 7 × кількість днів), а НЕ завжди фіксовано один тиждень: інакше
   // боржник за 3 тижні платив би стільки ж, скільки за кілька днів.
+  // Мінімум — повний тижневий тариф (як і для прострочення немає): навіть
+  // курʼєр, який прострочив лише 1-2 дні, має заплатити за повний тиждень
+  // наперед (бо оплата однаково продовжує підписку на +7 днів від сьогодні,
+  // nextExpiryFrom) — пропорційний розрахунок лише ДОДАЄ зверху для тих, хто
+  // прострочив довше за тиждень, а не зменшує суму для щойно прострочених.
   export function calculateOwedRent(weeklyPrice: number, daysLate: number): number {
     if (daysLate <= 0) return weeklyPrice;
-    return Math.round((weeklyPrice / 7) * daysLate);
+    return Math.max(weeklyPrice, Math.round((weeklyPrice / 7) * daysLate));
   }
 
   export function totalWithPenalty(weeklyPrice: number, daysLate: number, noPenalty = false): number {

@@ -67,6 +67,16 @@ function daysWord(n: number): string {
   return "днів";
 }
 
+// Ті самі підписи статусу, що й у Telegram-боті (STATUS_LABELS у
+// src/lib/courier-bot.ts) — щоб прев'ю бота в адмінці виглядало так само,
+// як бачить курʼєр.
+const STATUS_LABELS_UA: Record<string, string> = {
+  active: "✅ Активний",
+  pending: "⏳ Очікує першої оплати",
+  inactive: "💤 Неактивний (скутер здано)",
+  debtor: "⚠️ Боржник",
+};
+
 // Жива (не застаріла) сума боргу: якщо борг рахується автоматично
 // (debt_auto !== false) — рахуємо наживо, пропорційно дням прострочення,
 // а не читаємо збережене couriers.debt_amount (воно оновлюється лише раз
@@ -173,6 +183,14 @@ export default function AdminCouriersPage() {
   const [cashTariff, setCashTariff] = useState("");
   const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
   const [issueBatteryId, setIssueBatteryId] = useState("");
+  const [botPreview, setBotPreview] = useState<{
+    status: string;
+    expiresAt: string | null;
+    weeklyPrice: number;
+    debt: { rentDays: number; rentOwed: number; penaltyDays: number; penalty: number; total: number } | null;
+    quote: { scooterAmount: number; batteryAmount: number; penalty: number; penaltyDays: number; deposit: number; total: number };
+  } | null>(null);
+  const [botPreviewLoading, setBotPreviewLoading] = useState(false);
   const [telegramPrompt, setTelegramPrompt] = useState<{ name: string; phone: string; botUsername: string; amount: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [docFiles, setDocFiles] = useState<Record<string, string>>({});
@@ -217,6 +235,28 @@ export default function AdminCouriersPage() {
     setLoading(false);
   }
 
+  // Підтягує той самий розрахунок боргу й суми до оплати, який курʼєр бачить
+  // у Telegram-боті (/api/admin/bot-preview, рахує за тими самими формулами,
+  // що й src/lib/courier-bot.ts) — щоб адмін бачив у картці точно те саме,
+  // що бот фактично пише курʼєру, не відкриваючи сам бот.
+  async function loadBotPreview(courierId: string) {
+    setBotPreview(null);
+    setBotPreviewLoading(true);
+    try {
+      const res = await fetch("/api/admin/bot-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId }),
+      });
+      const data = await res.json();
+      if (data.success) setBotPreview(data);
+    } catch (e) {
+      console.error("bot-preview failed", e);
+    } finally {
+      setBotPreviewLoading(false);
+    }
+  }
+
   function selectCourier(c: Courier | null) {
     setSelected(c);
     setShowReturnQR(false);
@@ -227,6 +267,7 @@ export default function AdminCouriersPage() {
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
+      loadBotPreview(c.id);
     }
   }
 
@@ -1164,6 +1205,57 @@ export default function AdminCouriersPage() {
                     <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">— Не підключено</span>
                   )}
                 </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">📱 Що бачить курʼєр у Telegram-боті</p>
+                {botPreviewLoading && !botPreview ? (
+                  <p className="text-xs text-slate-400">Завантаження...</p>
+                ) : !botPreview ? (
+                  <p className="text-xs text-slate-400">Не вдалося завантажити</p>
+                ) : (
+                  <div className="bg-sky-50 border border-sky-100 rounded-lg p-2 text-xs space-y-0.5">
+                    <p className="flex justify-between text-slate-600">
+                      <span>Статус</span><span>{STATUS_LABELS_UA[botPreview.status] || botPreview.status}</span>
+                    </p>
+                    {botPreview.debt && (
+                      <>
+                        <p className="flex justify-between text-slate-600">
+                          <span>{botPreview.debt.rentDays > 0 ? `Борг за підписку (${botPreview.debt.rentDays} ${daysWord(botPreview.debt.rentDays)} прострочення)` : "Борг за підписку"}</span><span>{botPreview.debt.rentOwed} грн</span>
+                        </p>
+                        {botPreview.debt.penalty > 0 && (
+                          <p className="flex justify-between text-slate-600">
+                            <span>Пеня ({botPreview.debt.penaltyDays} {daysWord(botPreview.debt.penaltyDays)} × {DEBT_PENALTY_PER_DAY} грн)</span><span>{botPreview.debt.penalty} грн</span>
+                          </p>
+                        )}
+                        <p className="flex justify-between font-medium text-slate-800 border-t border-sky-100 pt-0.5">
+                          <span>Разом до сплати (борг)</span><span>{botPreview.debt.total} грн</span>
+                        </p>
+                      </>
+                    )}
+                    <p className="flex justify-between text-slate-600 pt-0.5">
+                      <span>Оренда скутера</span><span>{botPreview.quote.scooterAmount} грн</span>
+                    </p>
+                    {botPreview.quote.batteryAmount > 0 && (
+                      <p className="flex justify-between text-slate-600">
+                        <span>Акумулятор</span><span>{botPreview.quote.batteryAmount} грн</span>
+                      </p>
+                    )}
+                    {botPreview.quote.penalty > 0 && (
+                      <p className="flex justify-between text-slate-600">
+                        <span>Пеня ({botPreview.quote.penaltyDays} {daysWord(botPreview.quote.penaltyDays)} × {DEBT_PENALTY_PER_DAY} грн)</span><span>{botPreview.quote.penalty} грн</span>
+                      </p>
+                    )}
+                    {botPreview.quote.deposit > 0 && (
+                      <p className="flex justify-between text-slate-600">
+                        <span>Завдаток</span><span>{botPreview.quote.deposit} грн</span>
+                      </p>
+                    )}
+                    <p className="flex justify-between font-medium text-sky-700 border-t border-sky-100 pt-0.5">
+                      <span>Разом у кнопці «Оплатити»</span><span>{botPreview.quote.total} грн за ще 7 днів</span>
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">

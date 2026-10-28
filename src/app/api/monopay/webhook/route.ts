@@ -81,11 +81,20 @@ export async function POST(req: NextRequest) {
       // оплаті). Унікальний індекс payments_success_wayforpay_id_uniq не
       // дає двом рядкам мати той самий invoiceId зі статусом success — тож
       // ловимо порушення унікальності (23505) як безпечний дубль.
+      //
+      // Статус рядка може бути "pending" АБО "failed": якщо картка не
+      // пройшла з першої спроби на сторінці оплати (failure-вебхук позначив
+      // рядок як "failed"), а курʼєр одразу спробував іншою карткою в межах
+      // того самого інвойсу (той самий reference) і вона пройшла — цей
+      // success-вебхук має "воскресити" той самий рядок, а не мовчки
+      // вийти, бо рядок уже не "pending". Саме так реальна успішна оплата
+      // Герасимчука Микити (28.10.2026, друга спроба після відхиленої
+      // першої) взагалі не потрапила в базу.
       const { data: updatedPayment, error: updateError } = await supabaseAdmin
         .from("payments")
         .update({ status: "success", wayforpay_id: invoiceId })
         .eq("wayforpay_id", reference)
-        .eq("status", "pending")
+        .in("status", ["pending", "failed"])
         .select("id")
         .maybeSingle();
 
@@ -203,7 +212,7 @@ export async function POST(req: NextRequest) {
       if (failedCourierId) {
         const { data: updatedFailedPayment } = await supabaseAdmin
           .from("payments")
-          .update({ status: "failed", wayforpay_id: invoiceId })
+          .update({ status: "failed" })
           .eq("wayforpay_id", reference)
           .eq("status", "pending")
           .select("id")

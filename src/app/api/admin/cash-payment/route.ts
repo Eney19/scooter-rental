@@ -160,9 +160,14 @@ export async function POST(req: NextRequest) {
     if (!existingSub) {
       await openRentalPeriod(courierId, {
         city: courier.city ?? null,
-        scooterModel: courier.scooter_model ?? null,
+        // Для "тільки акумулятор" скутера фактично нема — не записуємо
+        // застаріле/випадкове значення couriers.scooter_model в історію.
+        scooterModel: courier.rental_type === "battery_only" ? null : (courier.scooter_model ?? null),
         batteryTypes: courier.battery_types ?? null,
-        weeklyPrice: courier.weekly_price ?? null,
+        // getWeeklyPrice(), а не сире courier.weekly_price — інакше для
+        // "тільки акумулятор" в історію потрапляє застаріла ціна скутера
+        // замість реального тарифу акумулятора.
+        weeklyPrice: getWeeklyPrice(courier),
         contractSignedAt: courier.contract_signed_at ?? null,
       });
     }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicKey, createVerify } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { nextExpiryFrom } from "@/lib/subscription";
+import { getWeeklyPrice } from "@/lib/pricing";
 import { openRentalPeriod } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
           ...(!existingSub ? { subscription_start_date: new Date().toISOString() } : {}),
         })
         .eq("id", courierId)
-        .select("full_name, phone, city, scooter_model, battery_types, weekly_price, contract_signed_at")
+        .select("full_name, phone, city, rental_type, scooter_model, battery_types, weekly_price, contract_signed_at")
         .single();
 
       console.log(`Payment success: courier=${courierId}, amount=${amountUAH} UAH`);
@@ -169,9 +170,14 @@ export async function POST(req: NextRequest) {
       if (!existingSub && courierRow) {
         await openRentalPeriod(courierId, {
           city: courierRow.city ?? null,
-          scooterModel: courierRow.scooter_model ?? null,
+          // Для "тільки акумулятор" скутера фактично нема — не записуємо
+          // застаріле/випадкове значення couriers.scooter_model в історію.
+          scooterModel: courierRow.rental_type === "battery_only" ? null : (courierRow.scooter_model ?? null),
           batteryTypes: courierRow.battery_types ?? null,
-          weeklyPrice: courierRow.weekly_price ?? null,
+          // getWeeklyPrice(), а не сире couriers.weekly_price — інакше для
+          // "тільки акумулятор" в історію потрапляє застаріла ціна скутера
+          // замість реального тарифу акумулятора.
+          weeklyPrice: getWeeklyPrice(courierRow),
           contractSignedAt: courierRow.contract_signed_at ?? null,
         });
       }

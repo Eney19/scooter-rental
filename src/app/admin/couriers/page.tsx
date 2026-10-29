@@ -828,7 +828,8 @@ export default function AdminCouriersPage() {
 
   async function handleReturnWithoutAct() {
     if (!selected) return;
-    if (!confirm(`Здати скутер без підпису Акту передачі для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`)) {
+    const itemLabel = selected.rental_type === "battery_only" ? "акумулятор" : "скутер";
+    if (!confirm(`Здати ${itemLabel} без підпису Акту передачі для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`)) {
       return;
     }
     setReturnLoading(true);
@@ -1954,7 +1955,7 @@ export default function AdminCouriersPage() {
 
               {showReturnOptions && (
                 <div className="border border-slate-200 rounded-xl p-3 mb-2 bg-slate-50 space-y-2">
-                  <p className="text-xs text-slate-500 mb-1">Оберіть спосіб здачі скутера:</p>
+                  <p className="text-xs text-slate-500 mb-1">Оберіть спосіб здачі {selected.rental_type === "battery_only" ? "акумулятора" : "скутера"}:</p>
                   <button
                     onClick={handleReturnWithAct}
                     className="block w-full text-center bg-orange-500 text-white rounded-xl py-2 text-sm font-medium hover:bg-orange-600"
@@ -1981,7 +1982,7 @@ export default function AdminCouriersPage() {
                 onClick={handleReturnScooter}
                 className="block w-full text-center bg-orange-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-orange-600 mb-2"
               >
-                🛴 Здача скутера
+                {selected.rental_type === "battery_only" ? "🔋 Здача акумулятора" : "🛴 Здача скутера"}
               </button>
 
               <div className="grid grid-cols-3 gap-2">

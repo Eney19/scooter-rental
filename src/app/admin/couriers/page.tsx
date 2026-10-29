@@ -78,6 +78,17 @@ const STATUS_LABELS_UA: Record<string, string> = {
   debtor: "⚠️ Боржник",
 };
 
+type RentalPeriod = {
+  id: string;
+  city: string | null;
+  scooter_model: string | null;
+  battery_types: string[] | null;
+  weekly_price: number | null;
+  contract_signed_at: string | null;
+  started_at: string;
+  ended_at: string | null;
+};
+
 // Жива (не застаріла) сума боргу: якщо борг рахується автоматично
 // (debt_auto !== false) — рахуємо наживо, пропорційно дням прострочення,
 // а не читаємо збережене couriers.debt_amount (воно оновлюється лише раз
@@ -199,6 +210,8 @@ export default function AdminCouriersPage() {
   const [subsByCourier, setSubsByCourier] = useState<Record<string, SubInfo>>({});
   const [courierPayments, setCourierPayments] = useState<PaymentRecord[]>([]);
   const [courierPaymentsLoading, setCourierPaymentsLoading] = useState(false);
+  const [rentalHistory, setRentalHistory] = useState<RentalPeriod[]>([]);
+  const [rentalHistoryLoading, setRentalHistoryLoading] = useState(false);
 
   const [role, setRole] = useState<AdminRole | null>(null);
 
@@ -258,17 +271,41 @@ export default function AdminCouriersPage() {
     }
   }
 
+  // Підтягує історію періодів оренди (скутер/акумулятор) курʼєра з
+  // rental_periods — ту саму таблицю й дані, що показує команда
+  // "🛵 Історія оренди" в Telegram-боті (src/lib/courier-bot.ts).
+  async function loadRentalHistory(courierId: string) {
+    setRentalHistory([]);
+    setRentalHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("rental_periods")
+        .select("id, city, scooter_model, battery_types, weekly_price, contract_signed_at, started_at, ended_at")
+        .eq("courier_id", courierId)
+        .order("started_at", { ascending: false });
+      if (error) {
+        console.error("loadRentalHistory failed", error);
+        return;
+      }
+      setRentalHistory(data || []);
+    } finally {
+      setRentalHistoryLoading(false);
+    }
+  }
+
   function selectCourier(c: Courier | null) {
     setSelected(c);
     setShowReturnQR(false);
     setShowReturnOptions(false);
     setDocFiles({});
     setCourierPayments([]);
+    setRentalHistory([]);
     setShowCashDatePicker(false);
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
       loadBotPreview(c.id);
+      loadRentalHistory(c.id);
     }
   }
 
@@ -1303,6 +1340,52 @@ export default function AdminCouriersPage() {
                     <p className="flex justify-between font-medium text-sky-700 border-t border-sky-100 pt-0.5">
                       <span>Разом у кнопці «Оплатити»</span><span>{botPreview.quote.total} грн за ще 7 днів</span>
                     </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">🛵 Історія оренди</p>
+                {rentalHistoryLoading && rentalHistory.length === 0 ? (
+                  <p className="text-xs text-slate-400">Завантаження...</p>
+                ) : rentalHistory.length === 0 ? (
+                  <p className="text-xs text-slate-400">Періодів оренди ще немає</p>
+                ) : (
+                  <div className="space-y-2">
+                    {rentalHistory.map((r) => {
+                      const batteryLabels = getBatteryLabels(r.battery_types);
+                      return (
+                        <div key={r.id} className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs space-y-0.5">
+                          <p className="flex justify-between font-medium text-slate-800">
+                            <span>
+                              {new Date(r.started_at).toLocaleDateString("uk-UA")}
+                              {" — "}
+                              {r.ended_at ? new Date(r.ended_at).toLocaleDateString("uk-UA") : "дотепер"}
+                            </span>
+                            {!r.ended_at && <span className="text-green-600">🟢 активний</span>}
+                          </p>
+                          <p className="flex justify-between text-slate-600">
+                            <span>Місто</span><span>{r.city || "—"}</span>
+                          </p>
+                          <p className="flex justify-between text-slate-600">
+                            <span>{batteryLabels.length > 0 && !r.scooter_model ? "Акумулятор" : "Модель скутера"}</span>
+                            <span>{r.scooter_model || (batteryLabels.length > 0 ? batteryLabels.join(", ") : "—")}</span>
+                          </p>
+                          {batteryLabels.length > 0 && r.scooter_model && (
+                            <p className="flex justify-between text-slate-600">
+                              <span>Акумулятор</span><span>{batteryLabels.join(", ")}</span>
+                            </p>
+                          )}
+                          <p className="flex justify-between text-slate-600">
+                            <span>Тариф</span><span>{r.weekly_price ? `${r.weekly_price} грн/тиж` : "—"}</span>
+                          </p>
+                          <p className="flex justify-between text-slate-600">
+                            <span>Договір підписано</span>
+                            <span>{r.contract_signed_at ? new Date(r.contract_signed_at).toLocaleDateString("uk-UA") : "—"}</span>
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -817,6 +817,12 @@ export default function AdminCouriersPage() {
 
   function handleReturnScooter() {
     if (!selected) return;
+    // Для "тільки акумулятор" нема фізичного акту передачі скутера — тож
+    // не показуємо вибір способу здачі, просто одразу здаємо (з підтвердженням).
+    if (selected.rental_type === "battery_only") {
+      handleReturnWithoutAct();
+      return;
+    }
     setShowReturnOptions(true);
   }
 
@@ -828,8 +834,10 @@ export default function AdminCouriersPage() {
 
   async function handleReturnWithoutAct() {
     if (!selected) return;
-    const itemLabel = selected.rental_type === "battery_only" ? "акумулятор" : "скутер";
-    if (!confirm(`Здати ${itemLabel} без підпису Акту передачі для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`)) {
+    const confirmText = selected.rental_type === "battery_only"
+      ? `Здати акумулятор для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`
+      : `Здати скутер без підпису Акту передачі для ${selected.full_name}? Статус кур'єра одразу стане "Неактивний".`;
+    if (!confirm(confirmText)) {
       return;
     }
     setReturnLoading(true);

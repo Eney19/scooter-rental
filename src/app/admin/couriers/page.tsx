@@ -36,6 +36,8 @@ type Courier = {
   telegram_connected_at: string | null;
   deleted_at: string | null;
   admin_comment: string | null;
+  paused_from: string | null;
+  paused_until: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -95,7 +97,14 @@ type RentalPeriod = {
 // на день щоденним cron-ом або вручну, тож може відставати). Якщо адмін
 // вручну зафіксував суму (debt_auto === false) — довіряємо збереженому
 // значенню.
+function isPaused(c: Courier): boolean {
+  return !!c.paused_from;
+}
+
 function liveDebtAmount(c: Courier, sub?: SubInfo): number | null {
+  // На паузі борг не рахується наживо (і cron не чіпає debt_since/debt_amount) —
+  // показуємо лише те, що вже було зафіксовано до паузи.
+  if (isPaused(c)) return c.debt_amount ?? null;
   if (c.status !== "debtor" || !c.debt_since) return c.debt_amount ?? null;
   if (c.debt_auto === false) return c.debt_amount ?? null;
   const expiresAt: Date = sub
@@ -195,8 +204,12 @@ export default function AdminCouriersPage() {
   const [cashTariff, setCashTariff] = useState("");
   const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
   const [issueBatteryId, setIssueBatteryId] = useState("");
+  const [pauseFromDate, setPauseFromDate] = useState("");
+  const [pauseToDate, setPauseToDate] = useState("");
   const [botPreview, setBotPreview] = useState<{
     status: string;
+    paused?: boolean;
+    pausedUntil?: string | null;
     expiresAt: string | null;
     weeklyPrice: number;
     debt: { rentDays: number; rentOwed: number; penaltyDays: number; penalty: number; total: number } | null;
@@ -301,6 +314,8 @@ export default function AdminCouriersPage() {
     setCourierPayments([]);
     setRentalHistory([]);
     setShowCashDatePicker(false);
+    setPauseFromDate("");
+    setPauseToDate("");
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -410,6 +425,35 @@ export default function AdminCouriersPage() {
     }
   }
 
+  // Виправлення помилки менеджера: якщо під час готівкової оплати вписали
+  // завдаток, якого насправді не було (або навпаки забули його), можна
+  // відредагувати суму завдатку заднім числом — "Скутер"/"Акумулятор" не
+  // чіпаємо, лише переносимо різницю між старим і новим завдатком у
+  // загальну суму платежу (amount), щоб усе лишалось узгодженим.
+  async function updatePaymentDeposit(paymentId: string, depositStr: string) {
+    const deposit = parseFloat(depositStr);
+    if (!Number.isFinite(deposit) || deposit < 0) return;
+    const payment = courierPayments.find(p => p.id === paymentId);
+    if (!payment) return;
+    const oldDeposit = payment.deposit || 0;
+    if (deposit === oldDeposit) return;
+    const amount = payment.amount - oldDeposit + deposit;
+    const { error } = await supabase.from("payments").update({ deposit, amount }).eq("id", paymentId);
+    if (error) {
+      console.error("updatePaymentDeposit failed", error);
+      alert(`Не вдалося зберегти завдаток: ${error.message}`);
+      return;
+    }
+    const updated = courierPayments.map(p => p.id === paymentId ? { ...p, deposit, amount } : p);
+    setCourierPayments(updated);
+
+    const sortedDesc = [...updated].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const latest = sortedDesc.find(p => p.status !== "failed");
+    if (latest && latest.id === paymentId && selected) {
+      await resyncSubscriptionFromPayments(selected.id, updated);
+    }
+  }
+
   async function loadCourierPayments(courierId: string) {
     setCourierPaymentsLoading(true);
     const { data } = await supabase
@@ -438,6 +482,84 @@ export default function AdminCouriersPage() {
     await supabase.from("couriers").update({ status }).eq("id", id);
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, status } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, status } : null);
+  }
+
+  // VIP-пауза: дні паузи не рахуються в термін оренди — при знятті паузи
+  // активна підписка подовжується рівно на фактичну тривалість паузи
+  // (now - paused_from), так само, як cron (resumeExpiredPauses) подовжує
+  // її на заплановану тривалість (paused_until - paused_from), коли admin
+  // не зняв паузу вручну до настання paused_until.
+  async function pauseCourier(courierId: string, from: string, to: string) {
+    if (!from || !to) {
+      alert("Вкажіть обидві дати: з якого і по яке число пауза");
+      return;
+    }
+    const fromIso = new Date(from).toISOString();
+    const toIso = new Date(to).toISOString();
+    if (new Date(toIso).getTime() <= new Date(fromIso).getTime()) {
+      alert("Дата закінчення паузи має бути пізніше дати початку");
+      return;
+    }
+    const { error } = await supabase
+      .from("couriers")
+      .update({ paused_from: fromIso, paused_until: toIso })
+      .eq("id", courierId);
+    if (error) {
+      console.error("pauseCourier failed", error);
+      alert(`Не вдалося поставити на паузу: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, paused_from: fromIso, paused_until: toIso } : c));
+    setSelected(prev => prev && prev.id === courierId ? { ...prev, paused_from: fromIso, paused_until: toIso } : prev);
+  }
+
+  async function resumeCourierNow(courierId: string) {
+    const courier = selected?.id === courierId ? selected : couriers.find(c => c.id === courierId);
+    if (!courier?.paused_from) return;
+    if (!confirm("Зняти кур'єра з паузи зараз? Термін оренди продовжиться на час, проведений на паузі.")) return;
+
+    const durationMs = Date.now() - new Date(courier.paused_from).getTime();
+
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("id, expires_at")
+      .eq("courier_id", courierId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    let newExpiresAt: string | null = null;
+    if (sub && durationMs > 0) {
+      newExpiresAt = new Date(new Date(sub.expires_at).getTime() + durationMs).toISOString();
+      const { error: subError } = await supabase
+        .from("subscriptions")
+        .update({ expires_at: newExpiresAt })
+        .eq("id", sub.id);
+      if (subError) {
+        console.error("resumeCourierNow: subscription update failed", subError);
+        alert(`Не вдалося продовжити підписку: ${subError.message}`);
+        return;
+      }
+    }
+
+    const { error } = await supabase
+      .from("couriers")
+      .update({ paused_from: null, paused_until: null, debt_since: null, debt_amount: null, debt_auto: false })
+      .eq("id", courierId);
+    if (error) {
+      console.error("resumeCourierNow failed", error);
+      alert(`Не вдалося зняти з паузи: ${error.message}`);
+      return;
+    }
+
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, paused_from: null, paused_until: null, debt_since: null, debt_amount: null, debt_auto: false } : c));
+    setSelected(prev => prev && prev.id === courierId ? { ...prev, paused_from: null, paused_until: null, debt_since: null, debt_amount: null, debt_auto: false } : prev);
+    if (sub && newExpiresAt) {
+      setSubsByCourier(prev => {
+        const current = prev[courierId];
+        if (!current) return prev;
+        return { ...prev, [courierId]: { ...current, expires_at: newExpiresAt as string } };
+      });
+    }
   }
 
   async function updateSubscriptionStart(id: string, date: string) {
@@ -1022,7 +1144,11 @@ export default function AdminCouriersPage() {
                             {c.registration_attempts && c.registration_attempts > 1 ? ` · спроба ${c.registration_attempts}` : ""}
                           </div>
                         )}
-                        {c.status === "inactive" ? (
+                        {isPaused(c) ? (
+                          <div className="text-amber-600 text-[11px] mt-1 font-medium">
+                            ⏸ На паузі{c.paused_until ? ` до ${new Date(c.paused_until).toLocaleDateString("uk-UA")}` : ""}
+                          </div>
+                        ) : c.status === "inactive" ? (
                           <div className="text-slate-400 text-[11px] mt-1">
                             {c.return_signed_at
                               ? `Скутер здано ${new Date(c.return_signed_at).toLocaleDateString("uk-UA")}`
@@ -1299,6 +1425,10 @@ export default function AdminCouriersPage() {
                   <p className="text-xs text-slate-400">Завантаження...</p>
                 ) : !botPreview ? (
                   <p className="text-xs text-slate-400">Не вдалося завантажити</p>
+                ) : botPreview.paused ? (
+                  <div className="bg-amber-50 border border-amber-100 rounded-lg p-2 text-xs text-amber-800">
+                    ⏸ На паузі{botPreview.pausedUntil ? ` до ${new Date(botPreview.pausedUntil).toLocaleDateString("uk-UA")}` : ""} — бот не пропонує оплату, поки триває пауза.
+                  </div>
                 ) : (
                   <div className="bg-sky-50 border border-sky-100 rounded-lg p-2 text-xs space-y-0.5">
                     <p className="flex justify-between text-slate-600">
@@ -1418,6 +1548,48 @@ export default function AdminCouriersPage() {
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">⏸ Пауза (VIP-виняток)</p>
+                {selected.paused_from ? (
+                  <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs space-y-2">
+                    <p className="text-amber-800">
+                      На паузі з <b>{new Date(selected.paused_from).toLocaleDateString("uk-UA")}</b>
+                      {selected.paused_until ? <> по <b>{new Date(selected.paused_until).toLocaleDateString("uk-UA")}</b></> : null}
+                      . Оплата не нараховується.
+                    </p>
+                    <button
+                      onClick={() => resumeCourierNow(selected.id)}
+                      className="w-full py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700"
+                    >
+                      ▶️ Зняти з паузи зараз
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={pauseFromDate}
+                        onChange={e => setPauseFromDate(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="date"
+                        value={pauseToDate}
+                        onChange={e => setPauseToDate(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <button
+                      onClick={() => pauseCourier(selected.id, pauseFromDate, pauseToDate)}
+                      className="w-full py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    >
+                      ⏸ Поставити на паузу
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Підписка</p>
                 {selected.status === "inactive" ? (
                   <div className="flex gap-2 items-center">
@@ -1453,7 +1625,7 @@ export default function AdminCouriersPage() {
                           className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                         />
                       </div>
-                      {weeks <= 0 ? (
+                      {isPaused(selected) ? null : weeks <= 0 ? (
                         <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
                       ) : weeks >= 2 ? (
                         <p className="text-emerald-600 font-medium text-xs">Це і {weeks - 1} {weeksWord(weeks - 1)} наперед</p>
@@ -1508,7 +1680,7 @@ export default function AdminCouriersPage() {
                                 </p>
                               </>
                             )}
-                            {!isFailed && hasBreakdown && (
+                            {!isFailed && p.wayforpay_id?.startsWith("cash_") ? (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 <p className="flex justify-between gap-3">
                                   <span>Скутер</span><span>{scooterAmount} грн</span>
@@ -1518,17 +1690,45 @@ export default function AdminCouriersPage() {
                                     <span>Акумулятор</span><span>{batteryAmount} грн</span>
                                   </p>
                                 )}
-                                {deposit > 0 && (
-                                  <p className="flex justify-between gap-3">
-                                    <span>Завдаток</span><span>{deposit} грн</span>
-                                  </p>
-                                )}
+                                <p className="flex justify-between items-center gap-3">
+                                  <span>Завдаток</span>
+                                  <span className="flex items-baseline gap-1">
+                                    <input
+                                      key={`${p.id}-dep-${deposit}`}
+                                      type="number"
+                                      defaultValue={deposit}
+                                      onBlur={e => updatePaymentDeposit(p.id, e.target.value)}
+                                      title="Виправити, якщо завдаток вписали помилково — поставте 0, щоб прибрати"
+                                      className="w-14 text-right bg-transparent border-b border-transparent hover:border-slate-200 focus:border-emerald-500 focus:outline-none text-slate-600"
+                                    />
+                                    <span>грн</span>
+                                  </span>
+                                </p>
                               </div>
+                            ) : (
+                              !isFailed && hasBreakdown && (
+                                <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
+                                  <p className="flex justify-between gap-3">
+                                    <span>Скутер</span><span>{scooterAmount} грн</span>
+                                  </p>
+                                  {batteryAmount > 0 && (
+                                    <p className="flex justify-between gap-3">
+                                      <span>Акумулятор</span><span>{batteryAmount} грн</span>
+                                    </p>
+                                  )}
+                                  {deposit > 0 && (
+                                    <p className="flex justify-between gap-3">
+                                      <span>Завдаток</span><span>{deposit} грн</span>
+                                    </p>
+                                  )}
+                                </div>
+                              )
                             )}
                           </div>
                           {p.wayforpay_id?.startsWith("cash_") && !isFailed ? (
                             <div className="flex items-baseline gap-1">
                               <input
+                                key={`${p.id}-amt-${p.amount}`}
                                 type="number"
                                 defaultValue={p.amount}
                                 onBlur={e => updatePaymentAmount(p.id, e.target.value)}

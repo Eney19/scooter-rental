@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getAdminChatIds } from "@/lib/telegram";
+import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -40,6 +41,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Спершу знімаємо паузу з усіх, у кого заплановане paused_until уже настало.
+    await resumeExpiredPauses();
+
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -48,7 +52,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, phone, city, telegram_chat_id)
+        courier:couriers(full_name, phone, city, telegram_chat_id, paused_from)
       `)
       .eq("status", "active")
       .gte("expires_at", now.toISOString())
@@ -72,9 +76,11 @@ export async function GET(req: NextRequest) {
         phone: string;
         city: string;
         telegram_chat_id: number | null;
+        paused_from: string | null;
       } | null;
 
       if (!courier) continue;
+      if (isPaused(courier)) continue;
 
       const expiresDate = new Date(sub.expires_at).toLocaleDateString("uk-UA");
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";

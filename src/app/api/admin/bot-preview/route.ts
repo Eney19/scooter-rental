@@ -11,6 +11,7 @@ import {
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
+import { isPaused } from "@/lib/pause";
 
 // Показує адміну той самий текст (борг + сума до оплати), що курʼєр бачить
 // у Telegram-боті — рахунок зроблено за тими самими формулами й тими самими
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, rental_type, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto")
+      .select("city, weekly_price, rental_type, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto, paused_from, paused_until")
       .eq("id", courierId)
       .single();
     if (!courier) {
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const status = courier.status || "pending";
+    const paused = isPaused(courier);
     const weeklyPrice = getWeeklyPrice(courier);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
 
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
       penalty: number;
       total: number;
     } | null = null;
-    if (status === "debtor") {
+    if (!paused && status === "debtor") {
       const rentDays = sub ? daysOverdue(sub.expires_at) : 0;
       const useManualOverride = courier.debt_auto === false && typeof courier.debt_amount === "number";
       const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, rentDays);
@@ -90,6 +92,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       status,
+      paused,
+      pausedUntil: paused ? courier.paused_until ?? null : null,
       expiresAt: sub?.expires_at ?? null,
       weeklyPrice,
       debt,

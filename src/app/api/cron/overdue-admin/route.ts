@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, daysOverdue, calculatePenalty, totalWithPenalty } from "@/lib/pricing";
+import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -33,13 +34,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Спершу знімаємо паузу з усіх, у кого заплановане paused_until уже настало.
+    await resumeExpiredPauses();
+
     const now = new Date();
 
     const { data: overdueSubs, error } = await supabaseAdmin
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, phone, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id)
+        courier:couriers(full_name, phone, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id, paused_from)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());
@@ -63,9 +67,11 @@ export async function GET(req: NextRequest) {
         weekly_price: number | null;
         no_penalty: boolean | null;
         telegram_chat_id: number | null;
+        paused_from: string | null;
       } | null;
 
       if (!courier) continue;
+      if (isPaused(courier)) continue;
 
       const late = daysOverdue(sub.expires_at);
       if (late < 1) continue;

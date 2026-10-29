@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice } from "@/lib/pricing";
+import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 import { getAdminChatIds } from "@/lib/telegram";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -23,12 +24,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Спершу знімаємо паузу з усіх, у кого заплановане paused_until уже настало.
+    await resumeExpiredPauses();
+
     const today = new Date();
     const todayWeekday = today.getDay(); // 0=неділя, 1=понеділок, ... 6=субота
 
     const { data: couriers, error } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, rental_type, battery_types, subscription_start_date")
+      .select("full_name, phone, city, weekly_price, rental_type, battery_types, subscription_start_date, paused_from")
       .eq("status", "active")
       .not("subscription_start_date", "is", null);
 
@@ -38,6 +42,7 @@ export async function GET(req: NextRequest) {
     }
 
     const dueToday = (couriers || []).filter((c) => {
+      if (isPaused(c)) return false;
       const d = new Date(c.subscription_start_date);
       return d.getDay() === todayWeekday;
     });

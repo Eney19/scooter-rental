@@ -13,6 +13,7 @@ import {
 } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 import { requestCashPayment } from "@/lib/cash-request";
+import { isPaused } from "@/lib/pause";
 
 // Особистий кабінет курʼєра в Telegram-боті (замінив сторінку /cabinet на сайті).
 // Усі дії курʼєра — меню, оплата (онлайн / готівкою / наперед), історія оплат,
@@ -60,6 +61,8 @@ type Courier = {
   debt_amount: number | null;
   debt_auto: boolean | null;
   no_penalty: boolean | null;
+  paused_from: string | null;
+  paused_until: string | null;
 };
 
 type Draft = { city: string; base: number; model: string; batteries: string[] };
@@ -74,7 +77,8 @@ type CallbackQuery = {
 
 const COURIER_COLUMNS =
   "id, full_name, phone, city, status, weekly_price, rental_type, scooter_model, battery_types, " +
-  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty";
+  "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty, " +
+  "paused_from, paused_until";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
 
@@ -286,9 +290,14 @@ async function sendStatus(chatId: number, courier: Courier) {
     .maybeSingle();
 
   const status = courier.status || "pending";
+  const paused = isPaused(courier);
   let text = `📋 <b>${esc(courier.full_name)}</b>\n\nСтатус: <b>${STATUS_LABELS[status] || status}</b>\n`;
 
-  if (sub) {
+  if (paused) {
+    text += courier.paused_until
+      ? `\n⏸ <b>Оренда на паузі до ${fmtDate(courier.paused_until)}</b>\nОплата не нараховується, поки триває пауза.\n`
+      : `\n⏸ <b>Оренда на паузі</b>\nОплата не нараховується, поки триває пауза.\n`;
+  } else if (sub) {
     if (status === "active") {
       const ahead = weeksAheadPaid(sub.expires_at);
       text += `📅 Підписка діє до: <b>${fmtDate(sub.expires_at)}</b>`;
@@ -298,7 +307,7 @@ async function sendStatus(chatId: number, courier: Courier) {
       text += `📅 Підписка закінчилась: ${fmtDate(sub.expires_at)}\n`;
     }
   }
-  if (status === "debtor") {
+  if (!paused && status === "debtor") {
     // Борг окремо (пропорційно дням прострочення), пеня окремо, разом —
     // так само, як у щоденному повідомленні про заборгованість (cron debtor-check).
     const weeklyPrice = getWeeklyPrice(courier);
@@ -317,7 +326,9 @@ async function sendStatus(chatId: number, courier: Courier) {
   text += `\n${tariffLine(courier)}`;
 
   const rows: Keyboard = [];
-  if (status === "active") rows.push([{ text: "💳 Оплатити наперед", callback_data: "c:pay" }]);
+  if (paused) {
+    // На паузі платити нічого не потрібно — кнопку оплати ховаємо.
+  } else if (status === "active") rows.push([{ text: "💳 Оплатити наперед", callback_data: "c:pay" }]);
   else if (status === "inactive") rows.push([{ text: "🛵 Взяти скутер знову", callback_data: "c:pay" }]);
   else rows.push([{ text: "💳 Оплатити", callback_data: "c:pay" }]);
   rows.push([
@@ -330,6 +341,16 @@ async function sendStatus(chatId: number, courier: Courier) {
 }
 
 async function sendPayScreen(chatId: number, messageId: number | null, courier: Courier) {
+  if (isPaused(courier)) {
+    await show(
+      chatId,
+      messageId,
+      courier.paused_until
+        ? `⏸ <b>Оренда на паузі до ${fmtDate(courier.paused_until)}</b>\n\nОплата не нараховується, поки триває пауза.`
+        : `⏸ <b>Оренда на паузі</b>\n\nОплата не нараховується, поки триває пауза.`
+    );
+    return;
+  }
   const q = await getQuote(courier);
   const parts: string[] = [];
   if (q.scooterAmount > 0) parts.push(`оренда скутера ${q.scooterAmount} грн`);

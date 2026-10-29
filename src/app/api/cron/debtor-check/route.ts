@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, calculateOwedRent, calculatePenalty, daysOverdue, daysSinceDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -37,6 +38,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Спершу знімаємо паузу з усіх, у кого вже настав запланований
+    // paused_until — щоб підписка встигла продовжитись ДО того, як нижче
+    // рахуватиметься прострочення для цього ж прогону.
+    await resumeExpiredPauses();
+
     const graceThreshold = new Date();
     graceThreshold.setDate(graceThreshold.getDate() - DEBT_GRACE_DAYS);
 
@@ -44,7 +50,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, courier_id,
-        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, status, debt_since, debt_auto, no_penalty, telegram_chat_id)
+        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, status, debt_since, debt_auto, no_penalty, telegram_chat_id, paused_from)
       `)
       .eq("status", "active")
       .lt("expires_at", graceThreshold.toISOString());
@@ -68,8 +74,12 @@ export async function GET(req: NextRequest) {
         debt_auto: boolean | null;
         no_penalty: boolean | null;
         telegram_chat_id: number | null;
+        paused_from: string | null;
       } | null;
       if (!courier) continue;
+
+      // Курʼєр на паузі (VIP-виняток) — доки пауза триває, оплата не нараховується.
+      if (isPaused(courier)) continue;
 
       // Адмін уже вручну позначив цього кур'єра боржником (без авто-трекінгу) — не чіпаємо.
       if (courier.status === "debtor" && !courier.debt_auto) continue;

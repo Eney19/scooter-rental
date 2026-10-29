@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
 // Рахує, скільки готівки очікувати від кур'єра (оренда + завдаток, якщо
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, battery_types, no_penalty")
+      .select("city, weekly_price, rental_type, battery_types, no_penalty")
       .eq("id", courierId)
       .single();
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
     const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
     const firstPayment = await shouldChargeDeposit(courierId);
-    const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const deposit = resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;
 

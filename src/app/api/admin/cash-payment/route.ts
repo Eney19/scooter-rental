@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at, no_penalty")
+      .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty")
       .eq("id", courierId)
       .single();
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     // передані rentOverride/depositOverride, довіряємо їм замість перерахунку.
     const firstPayment = await shouldChargeDeposit(courierId);
     const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
-    const deposit = typeof depositOverride === "number" ? depositOverride : (firstPayment ? getDepositAmount(courier.city) : 0);
+    const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;
@@ -49,10 +49,11 @@ export async function POST(req: NextRequest) {
     const paidAtDate = paidAt ? new Date(paidAt) : new Date();
     const now = paidAtDate.toISOString();
 
-    const paymentParts: string[] = [`оренда скутера ${scooterAmount} грн`];
+    const paymentParts: string[] = [];
+    if (scooterAmount > 0) paymentParts.push(`оренда скутера ${scooterAmount} грн`);
     if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
     if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
-    const paymentBreakdown = paymentParts.length > 1 ? paymentParts.join(" + ") : null;
+    const paymentBreakdown = paymentParts.length > 0 ? paymentParts.join(" + ") : null;
 
     const { error: paymentInsertError } = await supabaseAdmin.from("payments").insert({
       courier_id: courierId,

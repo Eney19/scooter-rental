@@ -19,6 +19,7 @@ type Courier = {
   passport_series: string | null;
   address: string | null;
   weekly_price: number | null;
+  rental_type: string | null;
   scooter_model: string | null;
   created_at: string;
   subscription_start_date: string | null;
@@ -544,6 +545,21 @@ export default function AdminCouriersPage() {
     if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, battery_types: [] } : null);
   }
 
+  // Перемикач "Скутер" / "Тільки акумулятор" на картці курʼєра: для
+  // "тільки акумулятор" getWeeklyPrice (src/lib/pricing.ts) сам підставляє
+  // ціну обраного акумулятора замість couriers.weekly_price — нічого іншого
+  // тут перераховувати не треба, це підхоплюється всюди автоматично.
+  async function setRentalType(courierId: string, type: "scooter" | "battery_only") {
+    const { error } = await supabase.from("couriers").update({ rental_type: type }).eq("id", courierId);
+    if (error) {
+      console.error("setRentalType failed", error);
+      alert(`Не вдалося зберегти: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, rental_type: type } : c));
+    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, rental_type: type } : null);
+  }
+
   async function openCashDatePicker(courierId: string) {
     setCashPaymentDate(new Date().toISOString().slice(0, 10));
     setCashRentAmount("");
@@ -953,8 +969,8 @@ export default function AdminCouriersPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600">{c.city || "—"}</td>
                       <td className="px-4 py-3">
-                        <div className="text-slate-600">{c.scooter_model || "—"}</div>
-                        <div className="text-slate-400 text-xs">{c.weekly_price ? `${c.weekly_price} грн/тиж` : "—"}</div>
+                        <div className="text-slate-600">{c.rental_type === "battery_only" ? "🔋 Тільки акумулятор" : (c.scooter_model || "—")}</div>
+                        <div className="text-slate-400 text-xs">{getWeeklyPrice(c) ? `${getWeeklyPrice(c)} грн/тиж` : "—"}</div>
                         {getBatteryLabels(c.battery_types).length > 0 && (
                           <div className="text-blue-500 text-[11px] mt-0.5">🔋 {getBatteryLabels(c.battery_types).join(", ")}</div>
                         )}
@@ -1108,17 +1124,50 @@ export default function AdminCouriersPage() {
                   />
                 </div>
                 <div className="flex gap-2 items-center">
-                  <span className="text-slate-400 w-20 shrink-0">Тариф</span>
-                  <input
-                    type="number"
-                    value={selected.weekly_price ?? ""}
-                    placeholder="грн/тиж"
-                    onChange={e => handleFieldChange("weekly_price", e.target.value)}
-                    onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
-                    className={fieldInputClass}
-                  />
-                  <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                  <span className="text-slate-400 w-20 shrink-0">Тип оренди</span>
+                  <div className="flex gap-1.5 flex-1">
+                    <button
+                      onClick={() => setRentalType(selected.id, "scooter")}
+                      className={`flex-1 text-xs font-medium rounded-lg px-2 py-1.5 border ${
+                        (selected.rental_type || "scooter") === "scooter"
+                          ? "bg-blue-50 border-blue-300 text-blue-700"
+                          : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      🛵 Скутер
+                    </button>
+                    <button
+                      onClick={() => setRentalType(selected.id, "battery_only")}
+                      className={`flex-1 text-xs font-medium rounded-lg px-2 py-1.5 border ${
+                        selected.rental_type === "battery_only"
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                          : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      🔋 Тільки акумулятор
+                    </button>
+                  </div>
                 </div>
+                {selected.rental_type === "battery_only" ? (
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-20 shrink-0">Тариф</span>
+                    <span className="flex-1 text-sm text-slate-700">{getWeeklyPrice(selected)} грн/тиж</span>
+                    <span className="text-slate-400 text-xs shrink-0">= тариф акумулятора</span>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 items-center">
+                    <span className="text-slate-400 w-20 shrink-0">Тариф</span>
+                    <input
+                      type="number"
+                      value={selected.weekly_price ?? ""}
+                      placeholder="грн/тиж"
+                      onChange={e => handleFieldChange("weekly_price", e.target.value)}
+                      onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
+                      className={fieldInputClass}
+                    />
+                    <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                  </div>
+                )}
                 <div className="flex gap-2 items-center">
                   <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Модель електроскутера</span>
                   <input

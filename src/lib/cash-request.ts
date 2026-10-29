@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
@@ -13,7 +13,7 @@ const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 export async function requestCashPayment(courierId: string): Promise<{ ok: boolean; error?: string }> {
   const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, city, weekly_price, battery_types")
+    .select("full_name, phone, city, weekly_price, rental_type, battery_types")
     .eq("id", courierId)
     .single();
 
@@ -23,7 +23,7 @@ export async function requestCashPayment(courierId: string): Promise<{ ok: boole
   // Лише для інформації адміну — скільки готівки очікувати, з завдатком за
   // скутер, якщо це перша оплата курʼєра (сам завдаток по містах — @lib/pricing).
   const firstPayment = await shouldChargeDeposit(courierId);
-  const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+  const deposit = resolveDeposit(courier, firstPayment);
   const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
   const scooterAmount = rentAmount - batteryAmount;
   const amount = rentAmount + deposit;
@@ -44,7 +44,7 @@ export async function requestCashPayment(courierId: string): Promise<{ ok: boole
           `${courier.full_name}\n${courier.phone}\n${courier.city || ""}\n` +
           (batteryAmount > 0 || deposit > 0
             ? [
-                `оренда скутера ${scooterAmount} грн`,
+                ...(scooterAmount > 0 ? [`оренда скутера ${scooterAmount} грн`] : []),
                 ...(batteryAmount > 0 ? [`оренда акумулятора ${batteryAmount} грн`] : []),
                 ...(deposit > 0 ? [`завдаток за скутер ${deposit} грн`] : []),
               ].join(" + ") + ` = <b>${amount} грн</b>\n\n`

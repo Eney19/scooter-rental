@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, courier_id,
-        courier:couriers(id, full_name, city, weekly_price, status, debt_since, debt_auto, no_penalty, telegram_chat_id)
+        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, status, debt_since, debt_auto, no_penalty, telegram_chat_id)
       `)
       .eq("status", "active")
       .lt("expires_at", graceThreshold.toISOString());

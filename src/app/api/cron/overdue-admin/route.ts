@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, phone, city, weekly_price, no_penalty, telegram_chat_id)
+        courier:couriers(full_name, phone, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());

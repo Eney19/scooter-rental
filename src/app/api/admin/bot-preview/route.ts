@@ -7,7 +7,7 @@ import {
   calculatePenalty,
   daysSinceDebt,
   getBatteryWeeklyPrice,
-  getDepositAmount,
+  resolveDeposit,
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto")
+      .select("city, weekly_price, rental_type, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto")
       .eq("id", courierId)
       .single();
     if (!courier) {
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const rentOwedQuote = useManualOverrideQuote ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, late);
     const penaltyQuote = useManualOverrideQuote ? 0 : calculatePenalty(late, !!courier.no_penalty);
     const firstPayment = await shouldChargeDeposit(courierId);
-    const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+    const deposit = resolveDeposit(courier, firstPayment);
 
     const quote = {
       scooterAmount: rentOwedQuote - batteryAmount,

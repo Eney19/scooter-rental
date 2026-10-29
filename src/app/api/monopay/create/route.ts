@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id")
+    .select("full_name, phone, email, city, weekly_price, rental_type, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id")
     .eq("id", courierId)
     .single();
 
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   // Завдаток стягується на кожне нове взяття скутера (коли в кур'єра зараз
   // немає відкритого періоду оренди), а не лише раз за все життя акаунта.
   const chargeDeposit = await shouldChargeDeposit(courierId);
-  const deposit = chargeDeposit ? getDepositAmount(courier.city) : 0;
+  const deposit = resolveDeposit(courier, chargeDeposit);
 
   const amountUAH = rentAmount + deposit;
     const amountKopecks = amountUAH * 100; // Monobank приймає суму в копійках

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, getDepositAmount, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         // Отримуємо дані курʼєра
         const { data: courier } = await supabaseAdmin
           .from("couriers")
-          .select("full_name, phone, city, weekly_price, scooter_model, battery_types, contract_signed_at, no_penalty")
+          .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty")
           .eq("id", courierId)
           .single();
 
@@ -86,16 +86,17 @@ export async function POST(req: NextRequest) {
         // Завдаток за скутер — на кожне нове взяття скутера (коли немає
         // відкритого періоду оренди), залежить від міста.
         const firstPayment = await shouldChargeDeposit(courierId);
-        const deposit = firstPayment ? getDepositAmount(courier.city) : 0;
+        const deposit = resolveDeposit(courier, firstPayment);
         const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
         const scooterAmount = rentAmount - batteryAmount;
         const amount = rentAmount + deposit;
         const now = new Date().toISOString();
 
-        const paymentParts: string[] = [`оренда скутера ${scooterAmount} грн`];
+        const paymentParts: string[] = [];
+        if (scooterAmount > 0) paymentParts.push(`оренда скутера ${scooterAmount} грн`);
         if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
         if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
-        const paymentBreakdown = paymentParts.length > 1 ? paymentParts.join(" + ") : null;
+        const paymentBreakdown = paymentParts.length > 0 ? paymentParts.join(" + ") : null;
 
         // Записуємо готівковий платіж. Раніше цей insert ніхто не
         // перевіряв: якщо Supabase повертав помилку, код мовчки йшов далі,

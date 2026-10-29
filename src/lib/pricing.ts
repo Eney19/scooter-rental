@@ -8,7 +8,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   const DEFAULT_WEEKLY_PRICE = 2400;
   const PENALTY_PER_DAY = 50;
   
-  export function getWeeklyPrice(courier: { city?: string | null; weekly_price?: number | null }): number {
+  // Курʼєр, який орендує ЛИШЕ акумулятор (без скутера, rental_type ===
+  // "battery_only") — тариф повністю визначається вибраним акумулятором
+  // (getBatteryWeeklyPrice), а не couriers.weekly_price/містом: ці курʼєри
+  // не платять за скутер взагалі. Це єдине місце, де вирішується "скутер
+  // чи лише акумулятор" — всі місця, що рахують оренду/борг/оплату,
+  // використовують саме getWeeklyPrice і автоматично підхоплюють це.
+  export function getWeeklyPrice(courier: { city?: string | null; weekly_price?: number | null; rental_type?: string | null; battery_types?: string[] | null }): number {
+    if (courier.rental_type === "battery_only") return getBatteryWeeklyPrice(courier.battery_types);
     if (courier.weekly_price && courier.weekly_price > 0) return courier.weekly_price;
     if (!courier.city) return DEFAULT_WEEKLY_PRICE;
     return WEEKLY_PRICE_BY_CITY[courier.city.trim()] ?? DEFAULT_WEEKLY_PRICE;
@@ -60,6 +67,18 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   export function getDepositAmount(city?: string | null): number {
     if (!city) return DEFAULT_DEPOSIT;
     return DEPOSIT_BY_CITY[city.trim()] ?? DEFAULT_DEPOSIT;
+  }
+
+  // Єдине місце, де вирішується, чи стягувати завдаток із цього платежу:
+  // курʼєри, які орендують ЛИШЕ акумулятор (rental_type === "battery_only"),
+  // завдаток не платять ніколи (нема скутера, який він мав би забезпечувати) —
+  // незалежно від того, чи це в них перше взяття. Усі місця, що рахують
+  // суму до оплати, мають викликати саме цю функцію, а не
+  // `chargeDeposit ? getDepositAmount(city) : 0` напряму, інакше при появі
+  // нового типу оренди завдаток знову почне стягуватись десь по закутках.
+  export function resolveDeposit(courier: { city?: string | null; rental_type?: string | null }, chargeDeposit: boolean): number {
+    if (courier.rental_type === "battery_only") return 0;
+    return chargeDeposit ? getDepositAmount(courier.city) : 0;
   }
 
   // Оренда акумулятора — опційна, обирається під час реєстрації паралельно зі

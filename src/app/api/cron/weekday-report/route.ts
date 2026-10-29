@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     const { data: couriers, error } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, subscription_start_date")
+      .select("full_name, phone, city, weekly_price, rental_type, battery_types, subscription_start_date")
       .eq("status", "active")
       .not("subscription_start_date", "is", null);
 

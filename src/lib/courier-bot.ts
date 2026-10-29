@@ -3,7 +3,7 @@ import {
   BATTERY_OPTIONS,
   getBatteryWeeklyPrice,
   getBatteryLabels,
-  getDepositAmount,
+  resolveDeposit,
   getWeeklyPrice,
   daysOverdue,
   calculateOwedRent,
@@ -49,6 +49,7 @@ type Courier = {
   city: string | null;
   status: string | null;
   weekly_price: number | null;
+  rental_type: string | null;
   scooter_model: string | null;
   battery_types: string[] | null;
   contract_pdf_url: string | null;
@@ -72,7 +73,7 @@ type CallbackQuery = {
 };
 
 const COURIER_COLUMNS =
-  "id, full_name, phone, city, status, weekly_price, scooter_model, battery_types, " +
+  "id, full_name, phone, city, status, weekly_price, rental_type, scooter_model, battery_types, " +
   "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
@@ -255,7 +256,7 @@ async function getQuote(courier: Courier) {
   const penalty = useManualOverride ? 0 : calculatePenalty(late, !!courier.no_penalty);
 
   const first = await shouldChargeDeposit(courier.id);
-  const deposit = first ? getDepositAmount(courier.city) : 0;
+  const deposit = resolveDeposit(courier, first);
 
   return {
     scooterAmount: rentOwed - batteryAmount,
@@ -330,7 +331,8 @@ async function sendStatus(chatId: number, courier: Courier) {
 
 async function sendPayScreen(chatId: number, messageId: number | null, courier: Courier) {
   const q = await getQuote(courier);
-  const parts = [`оренда скутера ${q.scooterAmount} грн`];
+  const parts: string[] = [];
+  if (q.scooterAmount > 0) parts.push(`оренда скутера ${q.scooterAmount} грн`);
   if (q.batteryAmount > 0) parts.push(`акумулятор ${q.batteryAmount} грн`);
   if (q.penalty > 0) {
     const penaltyDays = Math.round(q.penalty / DEBT_PENALTY_PER_DAY);

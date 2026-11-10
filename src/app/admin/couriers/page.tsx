@@ -185,6 +185,7 @@ export default function AdminCouriersPage() {
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [rentalTypeFilter, setRentalTypeFilter] = useState("all");
   const [telegramFilter, setTelegramFilter] = useState("all");
   const [emailFilter, setEmailFilter] = useState("all");
   const [showTrash, setShowTrash] = useState(false);
@@ -956,13 +957,16 @@ export default function AdminCouriersPage() {
       c.phone?.includes(search);
     const matchCity = cityFilter === "all" || c.city === cityFilter;
     const matchStatus = statusFilter === "all" || c.status === statusFilter;
+    const matchRentalType =
+      rentalTypeFilter === "all" ||
+      (rentalTypeFilter === "battery_only" ? c.rental_type === "battery_only" : c.rental_type !== "battery_only");
     const matchTelegram =
       telegramFilter === "all" ||
       (telegramFilter === "connected" ? !!c.telegram_chat_id : !c.telegram_chat_id);
     const matchEmail =
       emailFilter === "all" ||
       (emailFilter === "has_email" ? !!c.email : !c.email);
-    return matchSearch && matchCity && matchStatus && matchTelegram && matchEmail;
+    return matchSearch && matchCity && matchStatus && matchRentalType && matchTelegram && matchEmail;
   });
 
   const cities = ["all", "Луцьк", "Рівне", "Львів"];
@@ -1031,6 +1035,15 @@ export default function AdminCouriersPage() {
               <option value="pending">Очікують</option>
               <option value="inactive">Неактивні</option>
               <option value="debtor">Боржники</option>
+            </select>
+            <select
+              value={rentalTypeFilter}
+              onChange={e => setRentalTypeFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Оренда: всі</option>
+              <option value="scooter">🛵 Скутер</option>
+              <option value="battery_only">🔋 Тільки акумулятор</option>
             </select>
             <select
               value={telegramFilter}

@@ -15,7 +15,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // чи лише акумулятор" — всі місця, що рахують оренду/борг/оплату,
   // використовують саме getWeeklyPrice і автоматично підхоплюють це.
   export function getWeeklyPrice(courier: { city?: string | null; weekly_price?: number | null; rental_type?: string | null; battery_types?: string[] | null }): number {
-    if (courier.rental_type === "battery_only") return getBatteryWeeklyPrice(courier.battery_types);
+    if (courier.rental_type === "battery_only") {
+      // weekly_price тут — ручне перевизначення тарифу адміном (напр., коли
+      // акумулятор видано без вибору в battery_types, або тариф
+      // домовлений індивідуально). Якщо не задане — тариф як завжди
+      // рахується від обраних акумуляторів.
+      if (courier.weekly_price && courier.weekly_price > 0) return courier.weekly_price;
+      return getBatteryWeeklyPrice(courier.battery_types);
+    }
     if (courier.weekly_price && courier.weekly_price > 0) return courier.weekly_price;
     if (!courier.city) return DEFAULT_WEEKLY_PRICE;
     return WEEKLY_PRICE_BY_CITY[courier.city.trim()] ?? DEFAULT_WEEKLY_PRICE;

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -1336,8 +1336,17 @@ export default function AdminCouriersPage() {
                 {selected.rental_type === "battery_only" ? (
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-20 shrink-0">Тариф</span>
-                    <span className="flex-1 text-sm text-slate-700">{getWeeklyPrice(selected)} грн/тиж</span>
-                    <span className="text-slate-400 text-xs shrink-0">= тариф акумулятора</span>
+                    <input
+                      type="number"
+                      value={selected.weekly_price ?? ""}
+                      placeholder={`${getBatteryWeeklyPrice(selected.battery_types)}`}
+                      onChange={e => handleFieldChange("weekly_price", e.target.value)}
+                      onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
+                      className={fieldInputClass}
+                    />
+                    <span className="text-slate-400 text-xs shrink-0">
+                      {selected.weekly_price ? "грн/тиж" : `грн/тиж (= тариф акумулятора)`}
+                    </span>
                   </div>
                 ) : (
                   <div className="flex gap-2 items-center">

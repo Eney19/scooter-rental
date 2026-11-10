@@ -3,17 +3,46 @@ import { supabaseAdmin } from "@/lib/supabase";
 // Спільна логіка продовження підписки. Використовується скрізь, де підписка
 // може подовжуватись: monopay webhook, готівкова оплата (адмінка й Telegram).
 //
-// Головне правило: якщо в кур'єра ще є неспливлі оплачені дні (expires_at у
-// майбутньому), нові 7 днів додаються ПІСЛЯ поточної дати закінчення, а не
-// "від сьогодні" — інакше оплата наперед з'їдає вже оплачені дні. Якщо ж
-// підписка вже прострочена (або її ще немає — кур'єр неактивний і бере
-// скутер знову), відлік іде від поточного моменту.
+// Якщо в кур'єра ще є неспливлі оплачені дні (expires_at у майбутньому),
+// нові 7 днів додаються ПІСЛЯ поточної дати закінчення, а не "від сьогодні"
+// — інакше оплата наперед з'їдає вже оплачені дні.
+//
+// Якщо підписка вже прострочена — РАНІШЕ тут рахували +7 днів від "зараз",
+// і це означало, що прострочені дні кур'єру дарувались безкоштовно, а графік
+// платежів щоразу зсувався далі в майбутнє (що пізніше платиш — то довшу
+// безкоштовну паузу отримуєш назавжди). Приклад: Твердохліб мав заплатити
+// 30.10, прострочив на кілька днів і заплатив 02.11 — підписка продовжилась
+// до 09.11 (02.11+7) замість 06.11 (30.10+7), тобто прострочені дні просто
+// зникли на його користь. Тепер продовжуємо ВІД СТАРОЇ ДАТИ закінчення
+// (а не від сьогодні) на щонайменше 7 днів, або на стільки днів, скільки
+// фактично прострочено, якщо прострочення довше тижня — узгоджено з
+// calculateOwedRent (pricing.ts), яка так само бере max(тижневий тариф,
+// пропорційно дням прострочення): скільки днів фактично оплачено, стільки
+// й додається до підписки, графік не зсувається.
+//
+// Якщо активної підписки взагалі немає (кур'єр неактивний і бере скутер
+// знову) — відлік іде від поточного моменту, бо продовжувати нема від чого.
 export function nextExpiryFrom(currentExpiresAt: string | Date | null | undefined, referenceNow?: Date): Date {
   const now = referenceNow || new Date();
   const currentExpiry = currentExpiresAt ? new Date(currentExpiresAt) : null;
-  const base = currentExpiry && currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
-  const next = new Date(base);
-  next.setDate(next.getDate() + 7);
+
+  if (!currentExpiry) {
+    const next = new Date(now);
+    next.setDate(next.getDate() + 7);
+    return next;
+  }
+
+  if (currentExpiry.getTime() > now.getTime()) {
+    const next = new Date(currentExpiry);
+    next.setDate(next.getDate() + 7);
+    return next;
+  }
+
+  const diffMs = now.getTime() - currentExpiry.getTime();
+  const daysLate = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+  const daysToAdd = Math.max(7, daysLate);
+  const next = new Date(currentExpiry);
+  next.setDate(next.getDate() + daysToAdd);
   return next;
 }
 

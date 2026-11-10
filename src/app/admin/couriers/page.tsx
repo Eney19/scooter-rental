@@ -125,12 +125,18 @@ function weeksAheadPaid(expiresAt: string): number {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
 }
 
-// Відтворює той самий ланцюжок "+7 днів", що й бекенд (nextExpiryFrom), але
-// по кожному окремому платежу з історії — щоб показати, який саме період
-// (з якої по яку дату) покрила КОЖНА оплата, а не лише фінальну дату
-// підписки. Платежі беруться в хронологічному порядку; якщо на момент
-// оплати попередній період ще не скінчився (оплата наперед) — новий період
-// рахується від кінця попереднього, інакше — від дати самої оплати.
+// Відтворює той самий ланцюжок продовження підписки, що й бекенд
+// (nextExpiryFrom, subscription.ts), по кожному окремому платежу з історії —
+// щоб показати, який саме період (з якої по яку дату) покрила КОЖНА оплата,
+// а не лише фінальну дату підписки. Платежі беруться в хронологічному
+// порядку. Три випадки:
+// - оплата наперед (попередній період ще не скінчився) — новий період від
+//   кінця попереднього, +7 днів;
+// - прострочена оплата — ТЕЖ від кінця попереднього періоду (а не від дати
+//   оплати!), на щонайменше 7 днів або стільки, скільки фактично
+//   прострочено — інакше прострочені дні виглядали б подарованими
+//   безкоштовно, хоча бекенд їх більше не дарує;
+// - перший платіж узагалі (попереднього періоду немає) — від дати оплати.
 function computePaymentPeriods(payments: PaymentRecord[]): Record<string, { start: Date; end: Date }> {
   const ordered = payments
     .filter(p => p.status !== "failed")
@@ -141,9 +147,22 @@ function computePaymentPeriods(payments: PaymentRecord[]): Record<string, { star
   let runningEnd: Date | null = null;
   for (const p of ordered) {
     const paidAt = new Date(p.created_at);
-    const start: Date = runningEnd && runningEnd.getTime() > paidAt.getTime() ? runningEnd : paidAt;
+    let start: Date;
+    let daysToAdd: number;
+    if (!runningEnd) {
+      start = paidAt;
+      daysToAdd = 7;
+    } else if (runningEnd.getTime() > paidAt.getTime()) {
+      start = runningEnd;
+      daysToAdd = 7;
+    } else {
+      start = runningEnd;
+      const diffMs = paidAt.getTime() - runningEnd.getTime();
+      const daysLate = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+      daysToAdd = Math.max(7, daysLate);
+    }
     const end: Date = new Date(start);
-    end.setDate(end.getDate() + 7);
+    end.setDate(end.getDate() + daysToAdd);
     periods[p.id] = { start, end };
     runningEnd = end;
   }

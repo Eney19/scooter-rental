@@ -531,6 +531,7 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, paused_from: fromIso, paused_until: toIso } : c));
     setSelected(prev => prev && prev.id === courierId ? { ...prev, paused_from: fromIso, paused_until: toIso } : prev);
+    loadBotPreview(courierId);
   }
 
   async function resumeCourierNow(courierId: string) {
@@ -573,6 +574,7 @@ export default function AdminCouriersPage() {
 
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, paused_from: null, paused_until: null, debt_since: null, debt_amount: null, debt_auto: false } : c));
     setSelected(prev => prev && prev.id === courierId ? { ...prev, paused_from: null, paused_until: null, debt_since: null, debt_amount: null, debt_auto: false } : prev);
+    loadBotPreview(courierId);
     if (sub && newExpiresAt) {
       setSubsByCourier(prev => {
         const current = prev[courierId];
@@ -674,6 +676,7 @@ export default function AdminCouriersPage() {
       return;
     }
     setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: trimmed } as Courier) : c));
+    if (field === "city") loadBotPreview(id);
   }
 
   async function saveNumberField(id: string, field: string, value: string) {
@@ -686,6 +689,7 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: num } as Courier) : c));
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
+    if (field === "weekly_price") loadBotPreview(id);
   }
 
   // Адмін видає курʼєру акумулятор окремо від скутера (наприклад, курʼєр
@@ -704,7 +708,10 @@ export default function AdminCouriersPage() {
       return;
     }
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, battery_types: [issueBatteryId] } : c));
-    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, battery_types: [issueBatteryId] } : null);
+    if (selected?.id === courierId) {
+      setSelected(prev => prev ? { ...prev, battery_types: [issueBatteryId] } : null);
+      loadBotPreview(courierId);
+    }
     setIssueBatteryId("");
   }
 
@@ -721,7 +728,10 @@ export default function AdminCouriersPage() {
       return;
     }
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, battery_types: [] } : c));
-    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, battery_types: [] } : null);
+    if (selected?.id === courierId) {
+      setSelected(prev => prev ? { ...prev, battery_types: [] } : null);
+      loadBotPreview(courierId);
+    }
   }
 
   // Перемикач "Скутер" / "Тільки акумулятор" на картці курʼєра: для
@@ -736,7 +746,10 @@ export default function AdminCouriersPage() {
       return;
     }
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, rental_type: type } : c));
-    if (selected?.id === courierId) setSelected(prev => prev ? { ...prev, rental_type: type } : null);
+    if (selected?.id === courierId) {
+      setSelected(prev => prev ? { ...prev, rental_type: type } : null);
+      loadBotPreview(courierId);
+    }
   }
 
   async function openCashDatePicker(courierId: string) {
@@ -795,6 +808,7 @@ export default function AdminCouriersPage() {
       }
       await loadCouriers();
       await loadCourierPayments(courierId);
+      if (selected?.id === courierId) loadBotPreview(courierId);
     } catch (e) {
       console.error(e);
       alert("Помилка мережі. Спробуйте ще раз");

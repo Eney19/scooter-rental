@@ -738,16 +738,27 @@ export default function AdminCouriersPage() {
   // "тільки акумулятор" getWeeklyPrice (src/lib/pricing.ts) сам підставляє
   // ціну обраного акумулятора замість couriers.weekly_price — нічого іншого
   // тут перераховувати не треба, це підхоплюється всюди автоматично.
+  //
+  // При переході НА "тільки акумулятор" обнуляємо weekly_price: getWeeklyPrice
+  // для battery_only тепер (після фічі ручного перевизначення тарифу) бере
+  // weekly_price як override, якщо він заданий — а в курʼєра, який щойно
+  // був скутеристом, там майже напевно лежить СТАРИЙ тариф скутера (саме
+  // так Корнієнку порахувало борг 2400 замість 1000: weekly_price=2400
+  // лишився з часів, коли він орендував скутер, і мовчки став "override").
+  // Без очищення кожен такий перехід ризикує непомітно підмінити тариф
+  // акумулятора старим тарифом скутера.
   async function setRentalType(courierId: string, type: "scooter" | "battery_only") {
-    const { error } = await supabase.from("couriers").update({ rental_type: type }).eq("id", courierId);
+    const update: Partial<Courier> = { rental_type: type };
+    if (type === "battery_only") update.weekly_price = null;
+    const { error } = await supabase.from("couriers").update(update).eq("id", courierId);
     if (error) {
       console.error("setRentalType failed", error);
       alert(`Не вдалося зберегти: ${error.message}`);
       return;
     }
-    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, rental_type: type } : c));
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, ...update } : c));
     if (selected?.id === courierId) {
-      setSelected(prev => prev ? { ...prev, rental_type: type } : null);
+      setSelected(prev => prev ? { ...prev, ...update } : null);
       loadBotPreview(courierId);
     }
   }

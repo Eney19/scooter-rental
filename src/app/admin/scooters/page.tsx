@@ -114,6 +114,7 @@ export default function AdminScootersPage() {
           <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
           <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
           <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+          <a href="/admin/purchases" className="text-slate-500 hover:text-slate-700 shrink-0">Закупити</a>
           <a href="/admin/cash" className="text-slate-500 hover:text-slate-700 shrink-0">Каса</a>
         </nav>
       </header>

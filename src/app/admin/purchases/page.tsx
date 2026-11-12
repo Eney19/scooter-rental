@@ -7,6 +7,7 @@ import { getAdminRole, clearAdminRole } from "@/lib/admin-auth";
 type Purchase = {
   id: string;
   item_name: string;
+  city: string | null;
   quantity: number;
   location: string | null;
   price: number | null;
@@ -14,6 +15,8 @@ type Purchase = {
   created_at: string;
   deleted_at: string | null;
 };
+
+const CITY_OPTIONS = ["Луцьк", "Рівне", "Львів"] as const;
 
 const STATUS_LABELS: Record<Purchase["status"], string> = {
   pending: "Очікує",
@@ -38,6 +41,7 @@ export default function AdminPurchasesPage() {
 
   // Форма додавання нового запису
   const [itemName, setItemName] = useState("");
+  const [city, setCity] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [location, setLocation] = useState("");
   const [price, setPrice] = useState("");
@@ -46,6 +50,7 @@ export default function AdminPurchasesPage() {
   // Редагування існуючого запису
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editItemName, setEditItemName] = useState("");
+  const [editCity, setEditCity] = useState("");
   const [editQuantity, setEditQuantity] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editPrice, setEditPrice] = useState("");
@@ -90,6 +95,7 @@ export default function AdminPurchasesPage() {
       .from("purchases")
       .insert({
         item_name: name,
+        city: city || null,
         quantity: qtyNum,
         location: location.trim() || null,
         price: priceNum,
@@ -103,6 +109,7 @@ export default function AdminPurchasesPage() {
     } else if (data) {
       setPurchases(prev => [data as Purchase, ...prev]);
       setItemName("");
+      setCity("");
       setQuantity("1");
       setLocation("");
       setPrice("");
@@ -113,6 +120,7 @@ export default function AdminPurchasesPage() {
   function startEdit(p: Purchase) {
     setEditingId(p.id);
     setEditItemName(p.item_name);
+    setEditCity(p.city || "");
     setEditQuantity(String(p.quantity));
     setEditLocation(p.location || "");
     setEditPrice(p.price !== null ? String(p.price) : "");
@@ -127,9 +135,10 @@ export default function AdminPurchasesPage() {
     const qtyNum = Number(editQuantity) || 1;
     const priceNum = editPrice.trim() === "" ? null : Number(editPrice);
     const locationVal = editLocation.trim() || null;
+    const cityVal = editCity || null;
     const { error } = await supabase
       .from("purchases")
-      .update({ item_name: name, quantity: qtyNum, location: locationVal, price: priceNum })
+      .update({ item_name: name, city: cityVal, quantity: qtyNum, location: locationVal, price: priceNum })
       .eq("id", p.id);
     if (error) {
       console.error("saveEdit failed", error);
@@ -137,7 +146,7 @@ export default function AdminPurchasesPage() {
       return;
     }
     setPurchases(prev =>
-      prev.map(x => (x.id === p.id ? { ...x, item_name: name, quantity: qtyNum, location: locationVal, price: priceNum } : x))
+      prev.map(x => (x.id === p.id ? { ...x, item_name: name, city: cityVal, quantity: qtyNum, location: locationVal, price: priceNum } : x))
     );
     setEditingId(null);
   }
@@ -215,7 +224,7 @@ export default function AdminPurchasesPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
           <p className="text-xs text-slate-400 mb-3">Додати товар для закупівлі</p>
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_6rem_10rem_8rem] gap-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_8rem_6rem_10rem_8rem] gap-3 mb-3">
             <input
               type="text"
               placeholder="Назва товару"
@@ -223,6 +232,16 @@ export default function AdminPurchasesPage() {
               onChange={e => setItemName(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
             />
+            <select
+              value={city}
+              onChange={e => setCity(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-700"
+            >
+              <option value="">Місто</option>
+              {CITY_OPTIONS.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
             <input
               type="number"
               min={1}
@@ -233,7 +252,7 @@ export default function AdminPurchasesPage() {
             />
             <input
               type="text"
-              placeholder="Де купити"
+              placeholder="Де купити (магазин або сайт)"
               value={location}
               onChange={e => setLocation(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
@@ -297,6 +316,7 @@ export default function AdminPurchasesPage() {
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-slate-400 text-xs">
                     <th className="px-4 py-3 font-medium">Товар</th>
+                    <th className="px-4 py-3 font-medium">Місто</th>
                     <th className="px-4 py-3 font-medium">К-сть</th>
                     <th className="px-4 py-3 font-medium">Де купити</th>
                     <th className="px-4 py-3 font-medium">Ціна</th>
@@ -316,6 +336,18 @@ export default function AdminPurchasesPage() {
                               onChange={e => setEditItemName(e.target.value)}
                               className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm"
                             />
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              value={editCity}
+                              onChange={e => setEditCity(e.target.value)}
+                              className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-700"
+                            >
+                              <option value="">Місто</option>
+                              {CITY_OPTIONS.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-4 py-2">
                             <input
@@ -351,6 +383,7 @@ export default function AdminPurchasesPage() {
                       ) : (
                         <>
                           <td className="px-4 py-3 font-medium text-slate-800">{p.item_name}</td>
+                          <td className="px-4 py-3 text-slate-600">{p.city || <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-3 text-slate-600">{p.quantity}</td>
                           <td className="px-4 py-3 text-slate-600">{p.location || <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-3 text-slate-600">
@@ -392,7 +425,7 @@ export default function AdminPurchasesPage() {
                   {deletedPurchases.map(p => (
                     <div key={p.id} className="px-4 py-3 flex items-center gap-3 opacity-60">
                       <div className="flex-1 min-w-0 text-sm text-slate-500 line-through truncate">
-                        {p.item_name} · {p.quantity} шт.{p.location ? ` · ${p.location}` : ""}
+                        {p.item_name} · {p.quantity} шт.{p.city ? ` · ${p.city}` : ""}{p.location ? ` · ${p.location}` : ""}
                       </div>
                       <button onClick={() => restorePurchase(p)} className="text-xs text-blue-500 hover:underline shrink-0">Відновити</button>
                     </div>

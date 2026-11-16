@@ -1,10 +1,12 @@
-// Керування GPS-трекером скутера (MT21 / GT06-сумісний протокол) по SMS.
+// Керування GPS-трекером скутера (MT21) по SMS.
 //
-// Команди (RELAY,1# — вимкнути живлення/блокувати, RELAY,0# — відновити)
-// відповідають протоколу GT06/GT06N, до якого, судячи з маркування проводів
-// (Red=VCC, Black=GND, Orange=ACC, Yellow=Cut Oil), належить наш трекер MT21.
-// ПОКИ НЕ ПІДТВЕРДЖЕНО на реальному пристрої — перевірено вручну з телефону,
-// перш ніж покладатись на це в продакшені.
+// Коди підтверджені з офіційної інструкції виробника (розділ "3.1 Vehicle
+// oil pump power supply", доступно для MT-1C(1X)/A1X/MT21-22/MT5A-5B):
+//   9400000 — Cut vehicle oil pump power supply (блокувати)
+//   9410000 — Recover vehicle oil pump power supply (розблокувати)
+// Коди з офіційної паперової інструкції (фото), ще не підтверджені
+// фізичним тестом на реальному скутері — перевірити вручну з телефону
+// перед тим, як покладатись на це в продакшені.
 //
 // SMS надсилається через SMS Gateway for Android (cloud-режим, sms-gate.app) —
 // окремий Android-телефон із власною SIM-карткою, зареєстрованою на трекері
@@ -55,9 +57,9 @@ async function sendTrackerSms(simPhone: string, text: string): Promise<TrackerCo
 }
 
 export async function blockScooterByGps(simPhone: string): Promise<TrackerCommandResult> {
-  return sendTrackerSms(simPhone, "RELAY,1#");
+  return sendTrackerSms(simPhone, "9400000");
 }
 
 export async function unblockScooterByGps(simPhone: string): Promise<TrackerCommandResult> {
-  return sendTrackerSms(simPhone, "RELAY,0#");
+  return sendTrackerSms(simPhone, "9410000");
 }

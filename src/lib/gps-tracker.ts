@@ -15,6 +15,10 @@
 // Потрібні змінні середовища:
 //   SMS_GATEWAY_LOGIN, SMS_GATEWAY_PASSWORD — Basic Auth з екрану
 //   "Cloud Server" застосунку SMS Gateway for Android.
+//   SMS_GATEWAY_SIM_NUMBER (необов'язково, за замовчуванням 2) — номер SIM-слота
+//   (1-based) на телефоні-шлюзі, з якого слати SMS. На телефоні дві SIM-картки,
+//   на першій немає коштів — тому явно вказуємо слот 2, замість покладатись на
+//   системні/застосункові налаштування "SIM за замовчуванням" на Android.
 
 const SMS_GATEWAY_URL = "https://api.sms-gate.app/3rdparty/v1/messages";
 
@@ -42,6 +46,7 @@ async function sendTrackerSms(simPhone: string, text: string): Promise<TrackerCo
       body: JSON.stringify({
         textMessage: { text },
         phoneNumbers: [simPhone],
+        simNumber: Number(process.env.SMS_GATEWAY_SIM_NUMBER) || 2,
       }),
     });
 

@@ -16,6 +16,8 @@ type Scooter = {
   gps_sim_phone: string | null;
   gps_locked: boolean | null;
   gps_locked_at: string | null;
+  gps_last_ack_at: string | null;
+  gps_last_ack_text: string | null;
   courier_id: string | null;
   notes: string | null;
   created_at: string;
@@ -398,6 +400,13 @@ export default function AdminScootersPage() {
                       </button>
                     )}
                   </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    {selected.gps_last_ack_at ? (
+                      <>Трекер відповів: «{selected.gps_last_ack_text}» о {new Date(selected.gps_last_ack_at).toLocaleString("uk-UA")}</>
+                    ) : (
+                      "Підтвердження від трекера ще не надходило"
+                    )}
+                  </p>
                 </div>
               )}
             </div>

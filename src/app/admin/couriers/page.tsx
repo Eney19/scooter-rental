@@ -253,6 +253,8 @@ export default function AdminCouriersPage() {
     gps_sim_phone: string | null;
     gps_locked: boolean | null;
     gps_locked_at: string | null;
+    gps_last_ack_at: string | null;
+    gps_last_ack_text: string | null;
   } | null>(null);
   const [courierScooterLoading, setCourierScooterLoading] = useState(false);
   const [gpsActionLoading, setGpsActionLoading] = useState(false);
@@ -362,7 +364,7 @@ export default function AdminCouriersPage() {
     try {
       const { data } = await supabase
         .from("scooters")
-        .select("id, name, model, gps_sim_phone, gps_locked, gps_locked_at")
+        .select("id, name, model, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text")
         .eq("courier_id", courierId)
         .maybeSingle();
       setCourierScooter(data || null);
@@ -1811,6 +1813,13 @@ export default function AdminCouriersPage() {
                         )}
                       </div>
                     )}
+                    <p className="text-slate-400 mt-1">
+                      {courierScooter.gps_last_ack_at ? (
+                        <>Трекер відповів: «{courierScooter.gps_last_ack_text}» о {new Date(courierScooter.gps_last_ack_at).toLocaleString("uk-UA")}</>
+                      ) : (
+                        "Підтвердження від трекера ще не надходило"
+                      )}
+                    </p>
                   </div>
                 )}
               </div>

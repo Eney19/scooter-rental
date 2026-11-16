@@ -14,6 +14,8 @@ type Scooter = {
   gps_sim_phone: string | null;
   gps_locked: boolean | null;
   gps_locked_at: string | null;
+  gps_last_ack_at: string | null;
+  gps_last_ack_text: string | null;
   courier?: { id: string; full_name: string } | null;
 };
 
@@ -44,7 +46,7 @@ export default function AdminGpsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("scooters")
-      .select("id, name, model, city, status, gps_tracker_id, gps_sim_phone, gps_locked, gps_locked_at, courier:couriers(id, full_name)")
+      .select("id, name, model, city, status, gps_tracker_id, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text, courier:couriers(id, full_name)")
       .order("name", { ascending: true });
     setScooters((data || []) as unknown as Scooter[]);
     setLoading(false);
@@ -211,6 +213,11 @@ export default function AdminGpsPage() {
                           <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">🔒 Заблоковано</span>
                         ) : (
                           <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">🟢 Активний</span>
+                        )}
+                        {s.gps_last_ack_at && (
+                          <div className="text-slate-400 text-[11px] mt-1">
+                            Трекер: «{s.gps_last_ack_text}» {new Date(s.gps_last_ack_at).toLocaleString("uk-UA")}
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">

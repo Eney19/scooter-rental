@@ -54,6 +54,7 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
 };
 
 type SubInfo = { id: string; expires_at: string; paid_at: string | null; amount: number };
+type ScooterOption = { id: string; name: string; city: string | null; courier_id: string | null };
 type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; status: string | null; created_at: string };
 
 function weeksWord(n: number): string {
@@ -255,6 +256,9 @@ export default function AdminCouriersPage() {
   } | null>(null);
   const [courierScooterLoading, setCourierScooterLoading] = useState(false);
   const [gpsActionLoading, setGpsActionLoading] = useState(false);
+  const [allScooters, setAllScooters] = useState<ScooterOption[]>([]);
+  const [scooterAssignDraft, setScooterAssignDraft] = useState("");
+  const [scooterAssignLoading, setScooterAssignLoading] = useState(false);
 
   const [role, setRole] = useState<AdminRole | null>(null);
 
@@ -293,6 +297,12 @@ export default function AdminCouriersPage() {
       map[s.courier_id] = { id: s.id, expires_at: s.expires_at, paid_at: s.paid_at, amount: s.amount };
     });
     setSubsByCourier(map);
+
+    const { data: scootersData } = await supabase
+      .from("scooters")
+      .select("id, name, city, courier_id")
+      .order("name", { ascending: true });
+    setAllScooters(scootersData || []);
 
     setLoading(false);
     return data || [];
@@ -361,9 +371,60 @@ export default function AdminCouriersPage() {
     }
   }
 
+  // Прив'язує обраний скутер (за id) до цього кур'єра через scooters.courier_id —
+  // це єдине місце в адмінці, де це поле можна виставити вручну. Якщо скутер
+  // уже прив'язаний до іншого кур'єра, попереджає перед перепризначенням;
+  // якщо в цього кур'єра вже був інший скутер — знімає прив'язку з нього,
+  // щоб не лишалось двох скутерів на одному кур'єрі.
+  async function assignScooterToCourier(courierId: string, scooterId: string) {
+    const target = allScooters.find(s => s.id === scooterId);
+    if (!target) return;
+    if (target.courier_id && target.courier_id !== courierId) {
+      const owner = couriers.find(c => c.id === target.courier_id);
+      if (!confirm(`Скутер "${target.name}" вже прив'язаний до ${owner?.full_name || "іншого кур'єра"}. Перепризначити на цього кур'єра?`)) return;
+    }
+    setScooterAssignLoading(true);
+    try {
+      if (courierScooter && courierScooter.id !== scooterId) {
+        await supabase.from("scooters").update({ courier_id: null }).eq("id", courierScooter.id);
+      }
+      const { error } = await supabase.from("scooters").update({ courier_id: courierId }).eq("id", scooterId);
+      if (error) {
+        alert(`Не вдалося прив'язати скутер: ${error.message}`);
+        return;
+      }
+      setAllScooters(prev => prev.map(s => {
+        if (s.id === scooterId) return { ...s, courier_id: courierId };
+        if (courierScooter && s.id === courierScooter.id) return { ...s, courier_id: null };
+        return s;
+      }));
+      setScooterAssignDraft("");
+      await loadCourierScooter(courierId);
+    } finally {
+      setScooterAssignLoading(false);
+    }
+  }
+
+  async function unassignScooterFromCourier() {
+    if (!courierScooter) return;
+    if (!confirm(`Відв'язати "${courierScooter.name}" від цього кур'єра?`)) return;
+    setScooterAssignLoading(true);
+    try {
+      const { error } = await supabase.from("scooters").update({ courier_id: null }).eq("id", courierScooter.id);
+      if (error) {
+        alert(`Не вдалося відв'язати скутер: ${error.message}`);
+        return;
+      }
+      setAllScooters(prev => prev.map(s => s.id === courierScooter.id ? { ...s, courier_id: null } : s));
+      setCourierScooter(null);
+    } finally {
+      setScooterAssignLoading(false);
+    }
+  }
+
   async function blockCourierScooterGps() {
     if (!courierScooter) return;
-    if (!confirm(`Надіслати запит на блокування "${courierScooter.name}" по GPS? Переконайся, що скутер зараз НЕ в русі. Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    if (!confirm(`Заблокувати "${courierScooter.name}" по GPS? Переконайся, що скутер зараз НЕ в русі. SMS надішлеться автоматично через Android-шлюз.`)) return;
     setGpsActionLoading(true);
     const res = await fetch("/api/admin/gps-block", {
       method: "POST",
@@ -381,7 +442,7 @@ export default function AdminCouriersPage() {
 
   async function unblockCourierScooterGps() {
     if (!courierScooter) return;
-    if (!confirm(`Надіслати запит на розблокування "${courierScooter.name}" по GPS? Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    if (!confirm(`Розблокувати "${courierScooter.name}" по GPS? SMS надішлеться автоматично через Android-шлюз.`)) return;
     setGpsActionLoading(true);
     const res = await fetch("/api/admin/gps-unblock", {
       method: "POST",
@@ -405,6 +466,7 @@ export default function AdminCouriersPage() {
     setCourierPayments([]);
     setRentalHistory([]);
     setCourierScooter(null);
+    setScooterAssignDraft("");
     setShowCashDatePicker(false);
     setPauseFromDate("");
     setPauseToDate("");
@@ -1671,13 +1733,50 @@ export default function AdminCouriersPage() {
               </div>
 
               <div className="border-t border-slate-100 pt-4 mb-4">
-                <p className="text-xs text-slate-400 mb-2">📡 GPS-блокування скутера</p>
+                <p className="text-xs text-slate-400 mb-2">📡 Скутер та GPS-блокування</p>
+                <div className="flex gap-2 items-center mb-2">
+                  <select
+                    value={scooterAssignDraft || courierScooter?.id || ""}
+                    onChange={e => setScooterAssignDraft(e.target.value)}
+                    className="flex-1 text-sm rounded-lg border border-slate-200 px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">— не прив&apos;язано —</option>
+                    {allScooters.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}{s.city ? ` · ${s.city}` : ""}{s.courier_id && s.courier_id !== selected.id ? " (зайнятий)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const draft = scooterAssignDraft || courierScooter?.id || "";
+                    const current = courierScooter?.id || "";
+                    if (draft === current) return null;
+                    return draft === "" ? (
+                      <button
+                        onClick={unassignScooterFromCourier}
+                        disabled={scooterAssignLoading}
+                        className="text-xs bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 font-medium hover:bg-slate-300 disabled:opacity-50 shrink-0"
+                      >
+                        Відв&apos;язати
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => assignScooterToCourier(selected.id, draft)}
+                        disabled={scooterAssignLoading}
+                        className="text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Призначити
+                      </button>
+                    );
+                  })()}
+                </div>
                 {courierScooterLoading ? (
                   <p className="text-xs text-slate-400">Завантаження...</p>
                 ) : !courierScooter ? (
                   <p className="text-xs text-slate-400">
-                    Скутер не прив&apos;язаний до цього кур&apos;єра в системі (поле courier_id у скутера не заповнене — перевір на вкладці{" "}
-                    <a href="/admin/scooters" className="text-blue-600 hover:underline">Скутери</a>).
+                    Скутер ще не прив&apos;язаний до цього кур&apos;єра — обери зі списку вище. Дані трекера (SIM, ID) редагуються на вкладці{" "}
+                    <a href="/admin/scooters" className="text-blue-600 hover:underline">Скутери</a> або{" "}
+                    <a href="/admin/gps" className="text-blue-600 hover:underline">GPS</a>.
                   </p>
                 ) : (
                   <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs space-y-2">

@@ -67,7 +67,7 @@ export default function AdminGpsPage() {
   }
 
   async function blockScooterGps(s: Scooter) {
-    if (!confirm(`Надіслати запит на блокування "${s.name}" по GPS? Переконайся, що скутер зараз НЕ в русі. Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    if (!confirm(`Заблокувати "${s.name}" по GPS? Переконайся, що скутер зараз НЕ в русі. SMS надішлеться автоматично через Android-шлюз.`)) return;
     setActionLoadingId(s.id);
     const res = await fetch("/api/admin/gps-block", {
       method: "POST",
@@ -84,7 +84,7 @@ export default function AdminGpsPage() {
   }
 
   async function unblockScooterGps(s: Scooter) {
-    if (!confirm(`Надіслати запит на розблокування "${s.name}" по GPS? Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    if (!confirm(`Розблокувати "${s.name}" по GPS? SMS надішлеться автоматично через Android-шлюз.`)) return;
     setActionLoadingId(s.id);
     const res = await fetch("/api/admin/gps-unblock", {
       method: "POST",

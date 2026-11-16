@@ -85,6 +85,50 @@ export async function sendTelegramPaymentFailed(chatId: number, courierName: str
   });
 }
 
+// Chat_id, кому йде запит на блокування/розблокування скутера по GPS
+// (окремо від загального ADMIN_TELEGRAM_CHAT_ID — ця дія серйозніша і
+// призначена конкретній людині, яка фізично відправляє SMS на трекер).
+// Якщо не налаштовано — падаємо назад на загальний список адмінів.
+function getGpsBlockChatIds(): number[] {
+  const raw = process.env.GPS_BLOCK_ADMIN_CHAT_ID || "";
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
+  return ids.length > 0 ? ids : getAdminChatIds();
+}
+
+// Надсилає в Telegram запит на блокування/розблокування скутера —
+// з іменем курʼєра, назвою скутера, датою запиту і готовим посиланням
+// sms:, яке відкриває застосунок Повідомлення з уже вписаним номером
+// SIM-картки трекера і потрібним кодом (лишається тільки натиснути
+// "Надіслати"). Це напівавтоматичний варіант, доки немає окремого
+// Android-шлюзу для повної автоматизації.
+export async function sendGpsBlockRequest(params: {
+  courierName: string | null;
+  scooterName: string;
+  simPhone: string;
+  action: "block" | "unblock";
+}) {
+  const { courierName, scooterName, simPhone, action } = params;
+  const code = action === "block" ? "9400000" : "9410000";
+  const smsLink = `sms:${simPhone}?body=${code}`;
+  const dateStr = new Date().toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  const title = action === "block" ? "🔒 Запит на блокування скутера" : "🔓 Запит на розблокування скутера";
+  const text =
+    `${title}\n\n` +
+    `Кур'єр: <b>${courierName || "—"}</b>\n` +
+    `Скутер: <b>${scooterName}</b>\n` +
+    `Дата запиту: ${dateStr}\n\n` +
+    `Натисни посилання нижче — відкриється SMS з уже вписаним кодом, лишається відправити:\n` +
+    `<a href="${smsLink}">📩 Відкрити SMS (${code})</a>`;
+
+  await Promise.all(getGpsBlockChatIds().map((id) => sendTelegramMessage(id, text)));
+}
+
 export async function registerWebhook(appUrl: string) {
   const webhookUrl = `${appUrl}/api/telegram/webhook`;
   const res = await fetch(`${API}/setWebhook`, {

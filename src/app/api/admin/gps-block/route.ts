@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { blockScooterByGps } from "@/lib/gps-tracker";
+import { sendGpsBlockRequest } from "@/lib/telegram";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
     const { data: scooter } = await supabaseAdmin
       .from("scooters")
-      .select("gps_sim_phone")
+      .select("name, gps_sim_phone, courier:couriers(full_name)")
       .eq("id", scooterId)
       .single();
 
@@ -19,10 +19,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "У скутера не вказано номер SIM-картки трекера" }, { status: 400 });
     }
 
-    const result = await blockScooterByGps(scooter.gps_sim_phone);
-    if (!result.ok) {
-      return NextResponse.json({ success: false, error: result.error }, { status: 502 });
-    }
+    const courier = Array.isArray(scooter.courier) ? scooter.courier[0] : scooter.courier;
+
+    await sendGpsBlockRequest({
+      courierName: courier?.full_name ?? null,
+      scooterName: scooter.name,
+      simPhone: scooter.gps_sim_phone,
+      action: "block",
+    });
 
     const nowIso = new Date().toISOString();
     await supabaseAdmin

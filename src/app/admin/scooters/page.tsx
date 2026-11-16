@@ -87,7 +87,7 @@ export default function AdminScootersPage() {
   }
 
   async function blockScooterGps(id: string) {
-    if (!confirm("Заблокувати скутер по GPS? Переконайся, що скутер зараз НЕ в русі.")) return;
+    if (!confirm("Надіслати запит на блокування скутера по GPS? Переконайся, що скутер зараз НЕ в русі. Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.")) return;
     setGpsActionLoading(true);
     const res = await fetch("/api/admin/gps-block", {
       method: "POST",
@@ -105,7 +105,7 @@ export default function AdminScootersPage() {
   }
 
   async function unblockScooterGps(id: string) {
-    if (!confirm("Розблокувати скутер по GPS?")) return;
+    if (!confirm("Надіслати запит на розблокування скутера по GPS? Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.")) return;
     setGpsActionLoading(true);
     const res = await fetch("/api/admin/gps-unblock", {
       method: "POST",
@@ -385,7 +385,7 @@ export default function AdminScootersPage() {
                         disabled={gpsActionLoading}
                         className="flex-1 bg-green-100 text-green-700 rounded-xl py-2 text-xs font-medium hover:bg-green-200 disabled:opacity-60"
                       >
-                        🔓 Розблокувати скутер
+                        🔓 Запит на розблокування
                       </button>
                     ) : (
                       <button
@@ -393,7 +393,7 @@ export default function AdminScootersPage() {
                         disabled={gpsActionLoading}
                         className="flex-1 bg-red-100 text-red-700 rounded-xl py-2 text-xs font-medium hover:bg-red-200 disabled:opacity-60"
                       >
-                        🔒 Заблокувати скутер
+                        🔒 Запит на блокування
                       </button>
                     )}
                   </div>

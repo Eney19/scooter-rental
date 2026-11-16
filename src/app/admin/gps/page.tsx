@@ -25,7 +25,7 @@ export default function AdminGpsPage() {
   const [phoneDraft, setPhoneDraft] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState("all");
-  const [rentedOnly, setRentedOnly] = useState(false);
+  const [rentalFilter, setRentalFilter] = useState<"all" | "rented" | "available">("all");
 
   useEffect(() => {
     const r = getAdminRole();
@@ -101,7 +101,7 @@ export default function AdminGpsPage() {
   }
 
   const cityFiltered = scooters.filter(s => cityFilter === "all" || s.city === cityFilter);
-  const statusFiltered = cityFiltered.filter(s => !rentedOnly || s.status === "rented");
+  const statusFiltered = cityFiltered.filter(s => rentalFilter === "all" || s.status === rentalFilter);
   const withTracker = statusFiltered.filter(s => s.gps_sim_phone || s.gps_tracker_id);
   const withoutTracker = statusFiltered.filter(s => !s.gps_sim_phone && !s.gps_tracker_id);
   const lockedCount = scooters.filter(s => s.gps_locked).length;
@@ -144,10 +144,16 @@ export default function AdminGpsPage() {
             {["Луцьк","Рівне","Львів"].map(c => <option key={c}>{c}</option>)}
           </select>
           <button
-            onClick={() => setRentedOnly(v => !v)}
-            className={`px-3 py-2 rounded-xl text-sm font-medium border ${rentedOnly ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:text-slate-700"}`}
+            onClick={() => setRentalFilter(f => f === "rented" ? "all" : "rented")}
+            className={`px-3 py-2 rounded-xl text-sm font-medium border ${rentalFilter === "rented" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:text-slate-700"}`}
           >
-            🛵 Лише в оренді
+            🛵 В оренді
+          </button>
+          <button
+            onClick={() => setRentalFilter(f => f === "available" ? "all" : "available")}
+            className={`px-3 py-2 rounded-xl text-sm font-medium border ${rentalFilter === "available" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:text-slate-700"}`}
+          >
+            🅿️ Вільні
           </button>
         </div>
 

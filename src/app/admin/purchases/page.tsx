@@ -21,7 +21,7 @@ const CITY_OPTIONS = ["Луцьк", "Рівне", "Львів"] as const;
 const STATUS_LABELS: Record<Purchase["status"], string> = {
   pending: "Очікує",
   ordered: "Замовлено",
-  delivered: "Доставлено",
+  delivered: "Виконано",
 };
 
 const STATUS_STYLES: Record<Purchase["status"], string> = {

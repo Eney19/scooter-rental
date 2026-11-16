@@ -37,6 +37,8 @@ export default function AdminGpsPage() {
   const [newScooter, setNewScooter] = useState({
     name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: ""
   });
+  const [courierQuery, setCourierQuery] = useState("");
+  const [showCourierOptions, setShowCourierOptions] = useState(false);
 
   useEffect(() => {
     const r = getAdminRole();
@@ -118,6 +120,7 @@ export default function AdminGpsPage() {
     setAddSaving(false);
     setShowAdd(false);
     setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" });
+    setCourierQuery("");
   }
 
   function startEdit(s: Scooter) {
@@ -254,21 +257,58 @@ export default function AdminGpsPage() {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div className="sm:col-span-2">
+              <div className="sm:col-span-2 relative">
                 <label className="text-xs text-slate-500 mb-1 block">Кур&apos;єр, який зараз на ньому катається</label>
-                <select
-                  value={newScooter.courier_id}
-                  onChange={e => setNewScooter(p => ({ ...p, courier_id: e.target.value }))}
+                <input
+                  value={courierQuery}
+                  onChange={e => {
+                    setCourierQuery(e.target.value);
+                    setNewScooter(p => ({ ...p, courier_id: "" }));
+                    setShowCourierOptions(true);
+                  }}
+                  onFocus={() => setShowCourierOptions(true)}
+                  onBlur={() => setTimeout(() => setShowCourierOptions(false), 150)}
+                  placeholder="Почніть вводити ім'я..."
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">— Без кур&apos;єра —</option>
-                  {couriers.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
-                </select>
+                />
+                {newScooter.courier_id && (
+                  <button
+                    type="button"
+                    onClick={() => { setNewScooter(p => ({ ...p, courier_id: "" })); setCourierQuery(""); }}
+                    className="absolute right-3 top-9 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+                {showCourierOptions && (
+                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-lg">
+                    <div
+                      onClick={() => { setNewScooter(p => ({ ...p, courier_id: "" })); setCourierQuery(""); setShowCourierOptions(false); }}
+                      className="px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 cursor-pointer"
+                    >
+                      — Без кур&apos;єра —
+                    </div>
+                    {couriers
+                      .filter(c => c.full_name.toLowerCase().includes(courierQuery.trim().toLowerCase()))
+                      .map(c => (
+                        <div
+                          key={c.id}
+                          onClick={() => { setNewScooter(p => ({ ...p, courier_id: c.id })); setCourierQuery(c.full_name); setShowCourierOptions(false); }}
+                          className="px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 cursor-pointer"
+                        >
+                          {c.full_name}
+                        </div>
+                      ))}
+                    {couriers.filter(c => c.full_name.toLowerCase().includes(courierQuery.trim().toLowerCase())).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-slate-400">Нікого не знайдено</div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex gap-3 mt-4">
               <button
-                onClick={() => { setShowAdd(false); setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" }); }}
+                onClick={() => { setShowAdd(false); setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" }); setCourierQuery(""); }}
                 className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm hover:bg-slate-50"
               >
                 Скасувати

@@ -245,6 +245,16 @@ export default function AdminCouriersPage() {
   const [courierPaymentsLoading, setCourierPaymentsLoading] = useState(false);
   const [rentalHistory, setRentalHistory] = useState<RentalPeriod[]>([]);
   const [rentalHistoryLoading, setRentalHistoryLoading] = useState(false);
+  const [courierScooter, setCourierScooter] = useState<{
+    id: string;
+    name: string;
+    model: string | null;
+    gps_sim_phone: string | null;
+    gps_locked: boolean | null;
+    gps_locked_at: string | null;
+  } | null>(null);
+  const [courierScooterLoading, setCourierScooterLoading] = useState(false);
+  const [gpsActionLoading, setGpsActionLoading] = useState(false);
 
   const [role, setRole] = useState<AdminRole | null>(null);
 
@@ -256,7 +266,12 @@ export default function AdminCouriersPage() {
         return;
       }
       setRole(r);
-      await loadCouriers();
+      const list = await loadCouriers();
+      const openId = new URLSearchParams(window.location.search).get("open");
+      if (openId) {
+        const target = list.find((c) => c.id === openId);
+        if (target) selectCourier(target);
+      }
     }
     init();
   }, []);
@@ -280,6 +295,7 @@ export default function AdminCouriersPage() {
     setSubsByCourier(map);
 
     setLoading(false);
+    return data || [];
   }
 
   // Підтягує той самий розрахунок боргу й суми до оплати, який курʼєр бачить
@@ -326,6 +342,61 @@ export default function AdminCouriersPage() {
     }
   }
 
+  // Знаходить скутер, прив'язаний до цього кур'єра через scooters.courier_id —
+  // це поле ніде в коді автоматично не виставляється й не очищується (лише
+  // вручну в Supabase), тому якщо воно не заповнене чи застаріле, скутер тут
+  // просто не знайдеться.
+  async function loadCourierScooter(courierId: string) {
+    setCourierScooter(null);
+    setCourierScooterLoading(true);
+    try {
+      const { data } = await supabase
+        .from("scooters")
+        .select("id, name, model, gps_sim_phone, gps_locked, gps_locked_at")
+        .eq("courier_id", courierId)
+        .maybeSingle();
+      setCourierScooter(data || null);
+    } finally {
+      setCourierScooterLoading(false);
+    }
+  }
+
+  async function blockCourierScooterGps() {
+    if (!courierScooter) return;
+    if (!confirm(`Надіслати запит на блокування "${courierScooter.name}" по GPS? Переконайся, що скутер зараз НЕ в русі. Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    setGpsActionLoading(true);
+    const res = await fetch("/api/admin/gps-block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scooterId: courierScooter.id }),
+    });
+    const data = await res.json();
+    setGpsActionLoading(false);
+    if (!data.success) {
+      alert(`Не вдалося надіслати запит: ${data.error || "невідома помилка"}`);
+      return;
+    }
+    setCourierScooter(prev => prev ? { ...prev, gps_locked: true, gps_locked_at: data.gpsLockedAt } : prev);
+  }
+
+  async function unblockCourierScooterGps() {
+    if (!courierScooter) return;
+    if (!confirm(`Надіслати запит на розблокування "${courierScooter.name}" по GPS? Запит піде в Telegram — SMS відправляє людина, що отримає сповіщення.`)) return;
+    setGpsActionLoading(true);
+    const res = await fetch("/api/admin/gps-unblock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scooterId: courierScooter.id }),
+    });
+    const data = await res.json();
+    setGpsActionLoading(false);
+    if (!data.success) {
+      alert(`Не вдалося надіслати запит: ${data.error || "невідома помилка"}`);
+      return;
+    }
+    setCourierScooter(prev => prev ? { ...prev, gps_locked: false, gps_locked_at: null } : prev);
+  }
+
   function selectCourier(c: Courier | null) {
     setSelected(c);
     setShowReturnQR(false);
@@ -333,6 +404,7 @@ export default function AdminCouriersPage() {
     setDocFiles({});
     setCourierPayments([]);
     setRentalHistory([]);
+    setCourierScooter(null);
     setShowCashDatePicker(false);
     setPauseFromDate("");
     setPauseToDate("");
@@ -341,6 +413,7 @@ export default function AdminCouriersPage() {
       loadCourierPayments(c.id);
       loadBotPreview(c.id);
       loadRentalHistory(c.id);
+      loadCourierScooter(c.id);
     }
   }
 
@@ -1043,6 +1116,7 @@ export default function AdminCouriersPage() {
               <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
               <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
               <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
+              <a href="/admin/gps" className="text-slate-500 hover:text-slate-700 shrink-0">GPS</a>
             </>
           )}
           <a href="/admin/purchases" className="text-slate-500 hover:text-slate-700 shrink-0">Закупити</a>
@@ -1592,6 +1666,52 @@ export default function AdminCouriersPage() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mb-4">
+                <p className="text-xs text-slate-400 mb-2">📡 GPS-блокування скутера</p>
+                {courierScooterLoading ? (
+                  <p className="text-xs text-slate-400">Завантаження...</p>
+                ) : !courierScooter ? (
+                  <p className="text-xs text-slate-400">
+                    Скутер не прив&apos;язаний до цього кур&apos;єра в системі (поле courier_id у скутера не заповнене — перевір на вкладці{" "}
+                    <a href="/admin/scooters" className="text-blue-600 hover:underline">Скутери</a>).
+                  </p>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs space-y-2">
+                    <p className="flex justify-between font-medium text-slate-800">
+                      <span>{courierScooter.name}{courierScooter.model ? ` (${courierScooter.model})` : ""}</span>
+                      {courierScooter.gps_locked ? (
+                        <span className="text-red-600">🔒 Заблоковано</span>
+                      ) : (
+                        <span className="text-green-600">🟢 Активний</span>
+                      )}
+                    </p>
+                    {!courierScooter.gps_sim_phone ? (
+                      <p className="text-slate-400">SIM трекера не вказана (додай у Скутери → GPS)</p>
+                    ) : (
+                      <div className="flex gap-2 pt-1">
+                        {courierScooter.gps_locked ? (
+                          <button
+                            onClick={unblockCourierScooterGps}
+                            disabled={gpsActionLoading}
+                            className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+                          >
+                            Розблокувати по GPS
+                          </button>
+                        ) : (
+                          <button
+                            onClick={blockCourierScooterGps}
+                            disabled={gpsActionLoading}
+                            className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+                          >
+                            Заблокувати по GPS
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

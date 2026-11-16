@@ -193,6 +193,7 @@ export default function AdminCalendarPage() {
           <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
           <a href="/admin/queue" className="text-slate-500 hover:text-slate-700 shrink-0">Черга</a>
           <a href="/admin/purchases" className="text-slate-500 hover:text-slate-700 shrink-0">Закупити</a>
+          <a href="/admin/gps" className="text-slate-500 hover:text-slate-700 shrink-0">GPS</a>
           <a href="/admin/cash" className="text-slate-500 hover:text-slate-700 shrink-0">Каса</a>
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Календар</span>
         </nav>

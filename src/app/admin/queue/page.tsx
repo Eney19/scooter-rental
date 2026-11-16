@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { getAdminRole, clearAdminRole } from "@/lib/admin-auth";
+import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
 
 type QueueEntry = {
   id: string;
@@ -21,18 +21,19 @@ export default function AdminQueuePage() {
   const [loading, setLoading] = useState(true);
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [role, setRole] = useState<AdminRole | null>(null);
 
   useEffect(() => {
-    const r = getAdminRole();
-    if (!r) {
-      router.push("/admin");
-      return;
+    async function init() {
+      const r = getAdminRole();
+      if (!r) {
+        router.push("/admin");
+        return;
+      }
+      setRole(r);
+      await loadEntries();
     }
-    if (r !== "admin") {
-      router.push("/admin/couriers");
-      return;
-    }
-    loadEntries();
+    init();
   }, []);
 
   async function loadEntries() {
@@ -83,9 +84,13 @@ export default function AdminQueuePage() {
         </div>
         <nav className="flex gap-4 text-sm mt-3 overflow-x-auto whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
           <a href="/admin/couriers" className="text-slate-500 hover:text-slate-700 shrink-0">Кур'єри</a>
-          <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
-          <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
-          <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
+          {role === "admin" && (
+            <>
+              <a href="/admin/scooters" className="text-slate-500 hover:text-slate-700 shrink-0">Скутери</a>
+              <a href="/admin/payments" className="text-slate-500 hover:text-slate-700 shrink-0">Платежі</a>
+              <a href="/admin/calendar" className="text-slate-500 hover:text-slate-700 shrink-0">Календар</a>
+            </>
+          )}
           <span className="text-blue-600 font-medium border-b-2 border-blue-600 pb-1 shrink-0">Черга</span>
           <a href="/admin/purchases" className="text-slate-500 hover:text-slate-700 shrink-0">Закупити</a>
           <a href="/admin/gps" className="text-slate-500 hover:text-slate-700 shrink-0">GPS</a>

@@ -16,8 +16,11 @@ type Scooter = {
   gps_locked_at: string | null;
   gps_last_ack_at: string | null;
   gps_last_ack_text: string | null;
+  courier_id: string | null;
   courier?: { id: string; full_name: string } | null;
 };
+
+type CourierOption = { id: string; full_name: string };
 
 export default function AdminGpsPage() {
   const router = useRouter();
@@ -28,6 +31,12 @@ export default function AdminGpsPage() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState("all");
   const [rentalFilter, setRentalFilter] = useState<"all" | "rented" | "available">("all");
+  const [couriers, setCouriers] = useState<CourierOption[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [newScooter, setNewScooter] = useState({
+    name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: ""
+  });
 
   useEffect(() => {
     const r = getAdminRole();
@@ -40,16 +49,75 @@ export default function AdminGpsPage() {
       return;
     }
     loadScooters();
+    loadCouriers();
   }, []);
 
   async function loadScooters() {
     setLoading(true);
     const { data } = await supabase
       .from("scooters")
-      .select("id, name, model, city, status, gps_tracker_id, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text, courier:couriers(id, full_name)")
+      .select("id, name, model, city, status, gps_tracker_id, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text, courier_id, courier:couriers(id, full_name)")
       .order("name", { ascending: true });
     setScooters((data || []) as unknown as Scooter[]);
     setLoading(false);
+  }
+
+  async function loadCouriers() {
+    const { data } = await supabase
+      .from("couriers")
+      .select("id, full_name")
+      .is("deleted_at", null)
+      .order("full_name", { ascending: true });
+    setCouriers((data || []) as CourierOption[]);
+  }
+
+  // Створює новий скутер прямо з вкладки GPS: номер, телефон SIM трекера, ID
+  // трекера (IMEI) і одразу кур'єра, який на ньому катається (зі списку
+  // існуючих). Якщо обраний кур'єр вже має інший скутер — знімає прив'язку
+  // з нього, щоб не лишалось двох скутерів на одному кур'єрі.
+  async function addScooter() {
+    if (!newScooter.name.trim()) return;
+    const courierId = newScooter.courier_id || null;
+    if (courierId) {
+      const prevScooter = scooters.find(s => s.courier_id === courierId);
+      if (prevScooter) {
+        const courierName = couriers.find(c => c.id === courierId)?.full_name || "цього кур'єра";
+        if (!confirm(`${courierName} вже прив'язаний до "${prevScooter.name}". Перепризначити на новий скутер?`)) return;
+      }
+    }
+    setAddSaving(true);
+    const { data, error } = await supabase.from("scooters").insert({
+      name: newScooter.name.trim(),
+      city: newScooter.city,
+      gps_tracker_id: newScooter.gps_tracker_id.trim() || null,
+      gps_sim_phone: newScooter.gps_sim_phone.trim() || null,
+      courier_id: courierId,
+      status: "available",
+    }).select().single();
+    if (error || !data) {
+      setAddSaving(false);
+      alert(`Не вдалося додати скутер: ${error?.message || "невідома помилка"}`);
+      return;
+    }
+    if (courierId) {
+      const prevScooter = scooters.find(s => s.courier_id === courierId);
+      if (prevScooter) {
+        await supabase.from("scooters").update({ courier_id: null }).eq("id", prevScooter.id);
+      }
+    }
+    const courierInfo = courierId ? couriers.find(c => c.id === courierId) : null;
+    setScooters(prev => {
+      const cleared = courierId ? prev.map(s => s.courier_id === courierId ? { ...s, courier_id: null, courier: null } : s) : prev;
+      const added: Scooter = {
+        ...(data as unknown as Scooter),
+        courier_id: courierId,
+        courier: courierInfo ? { id: courierInfo.id, full_name: courierInfo.full_name } : null,
+      };
+      return [...cleared, added].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setAddSaving(false);
+    setShowAdd(false);
+    setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" });
   }
 
   function startEdit(s: Scooter) {
@@ -135,10 +203,86 @@ export default function AdminGpsPage() {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <h2 className="font-bold text-slate-900">GPS-трекери скутерів</h2>
-          {lockedCount > 0 && (
-            <div className="text-sm text-red-600 font-medium">🔒 Заблоковано: {lockedCount}</div>
-          )}
+          <div className="flex items-center gap-3">
+            {lockedCount > 0 && (
+              <div className="text-sm text-red-600 font-medium">🔒 Заблоковано: {lockedCount}</div>
+            )}
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
+              + Додати скутер
+            </button>
+          </div>
         </div>
+
+        {showAdd && (
+          <div className="bg-white rounded-xl border border-blue-200 p-5 mb-4">
+            <h3 className="font-semibold text-slate-900 mb-4">Новий скутер</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Назва/номер *</label>
+                <input
+                  value={newScooter.name}
+                  onChange={e => setNewScooter(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Скутер #1"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Місто</label>
+                <select
+                  value={newScooter.city}
+                  onChange={e => setNewScooter(p => ({ ...p, city: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                >
+                  {["Луцьк", "Рівне", "Львів"].map(ct => <option key={ct}>{ct}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Телефон SIM трекера</label>
+                <input
+                  value={newScooter.gps_sim_phone}
+                  onChange={e => setNewScooter(p => ({ ...p, gps_sim_phone: e.target.value }))}
+                  placeholder="+380XXXXXXXXX"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">GPS трекер ID (IMEI)</label>
+                <input
+                  value={newScooter.gps_tracker_id}
+                  onChange={e => setNewScooter(p => ({ ...p, gps_tracker_id: e.target.value }))}
+                  placeholder="869343040709846"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs text-slate-500 mb-1 block">Кур&apos;єр, який зараз на ньому катається</label>
+                <select
+                  value={newScooter.courier_id}
+                  onChange={e => setNewScooter(p => ({ ...p, courier_id: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">— Без кур&apos;єра —</option>
+                  {couriers.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => { setShowAdd(false); setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" }); }}
+                className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm hover:bg-slate-50"
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={addScooter}
+                disabled={addSaving || !newScooter.name.trim()}
+                className="flex-1 bg-blue-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+              >
+                {addSaving ? "Збереження..." : "Додати"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-3 mb-4 flex-wrap items-center">
           <select value={cityFilter} onChange={e => setCityFilter(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500">

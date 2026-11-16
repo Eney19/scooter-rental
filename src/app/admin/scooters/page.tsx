@@ -13,6 +13,9 @@ type Scooter = {
   status: string | null;
   battery_level: number | null;
   gps_tracker_id: string | null;
+  gps_sim_phone: string | null;
+  gps_locked: boolean | null;
+  gps_locked_at: string | null;
   courier_id: string | null;
   notes: string | null;
   created_at: string;
@@ -35,9 +38,12 @@ export default function AdminScootersPage() {
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [newScooter, setNewScooter] = useState({
-    name: "", model: "", vin: "", city: "Луцьк", gps_tracker_id: "", notes: ""
+    name: "", model: "", vin: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", notes: ""
   });
   const [saving, setSaving] = useState(false);
+  const [editingSimPhoneId, setEditingSimPhoneId] = useState<string | null>(null);
+  const [simPhoneDraft, setSimPhoneDraft] = useState("");
+  const [gpsActionLoading, setGpsActionLoading] = useState(false);
 
   useEffect(() => {
     const r = getAdminRole();
@@ -68,6 +74,54 @@ export default function AdminScootersPage() {
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, status } : null);
   }
 
+  async function saveSimPhone(id: string) {
+    const phone = simPhoneDraft.trim() || null;
+    const { error } = await supabase.from("scooters").update({ gps_sim_phone: phone }).eq("id", id);
+    if (error) {
+      alert(`Не вдалося зберегти: ${error.message}`);
+      return;
+    }
+    setScooters(prev => prev.map(s => s.id === id ? { ...s, gps_sim_phone: phone } : s));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, gps_sim_phone: phone } : null);
+    setEditingSimPhoneId(null);
+  }
+
+  async function blockScooterGps(id: string) {
+    if (!confirm("Заблокувати скутер по GPS? Переконайся, що скутер зараз НЕ в русі.")) return;
+    setGpsActionLoading(true);
+    const res = await fetch("/api/admin/gps-block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scooterId: id }),
+    });
+    const data = await res.json();
+    setGpsActionLoading(false);
+    if (!data.success) {
+      alert(`Не вдалося заблокувати: ${data.error || "невідома помилка"}`);
+      return;
+    }
+    setScooters(prev => prev.map(s => s.id === id ? { ...s, gps_locked: true, gps_locked_at: data.gpsLockedAt } : s));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, gps_locked: true, gps_locked_at: data.gpsLockedAt } : null);
+  }
+
+  async function unblockScooterGps(id: string) {
+    if (!confirm("Розблокувати скутер по GPS?")) return;
+    setGpsActionLoading(true);
+    const res = await fetch("/api/admin/gps-unblock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scooterId: id }),
+    });
+    const data = await res.json();
+    setGpsActionLoading(false);
+    if (!data.success) {
+      alert(`Не вдалося розблокувати: ${data.error || "невідома помилка"}`);
+      return;
+    }
+    setScooters(prev => prev.map(s => s.id === id ? { ...s, gps_locked: false, gps_locked_at: null } : s));
+    if (selected?.id === id) setSelected(prev => prev ? { ...prev, gps_locked: false, gps_locked_at: null } : null);
+  }
+
   async function addScooter() {
     if (!newScooter.name) return;
     setSaving(true);
@@ -77,6 +131,7 @@ export default function AdminScootersPage() {
       vin: newScooter.vin || null,
       city: newScooter.city,
       gps_tracker_id: newScooter.gps_tracker_id || null,
+      gps_sim_phone: newScooter.gps_sim_phone || null,
       notes: newScooter.notes || null,
       status: "available",
     }).select().single();
@@ -84,7 +139,7 @@ export default function AdminScootersPage() {
     if (!error && data) {
       setScooters(prev => [data, ...prev]);
       setShowAdd(false);
-      setNewScooter({ name: "", model: "", vin: "", city: "Луцьк", gps_tracker_id: "", notes: "" });
+      setNewScooter({ name: "", model: "", vin: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", notes: "" });
     }
   }
 
@@ -176,6 +231,10 @@ export default function AdminScootersPage() {
                   <input value={newScooter.gps_tracker_id} onChange={e => setNewScooter(p => ({...p, gps_tracker_id: e.target.value}))} className={inp} placeholder="IMEI трекера"/>
                 </div>
                 <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Телефон SIM трекера</label>
+                  <input value={newScooter.gps_sim_phone} onChange={e => setNewScooter(p => ({...p, gps_sim_phone: e.target.value}))} className={inp} placeholder="+380XXXXXXXXX"/>
+                </div>
+                <div>
                   <label className="text-xs text-slate-500 mb-1 block">Примітки</label>
                   <input value={newScooter.notes} onChange={e => setNewScooter(p => ({...p, notes: e.target.value}))} className={inp} placeholder="Додаткова інформація"/>
                 </div>
@@ -228,6 +287,7 @@ export default function AdminScootersPage() {
                         {s.courier ? s.courier.full_name : "—"}
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs font-mono">
+                        {s.gps_locked && <span className="text-red-500 mr-1" title="Заблоковано по GPS">🔒</span>}
                         {s.gps_tracker_id || "—"}
                       </td>
                     </tr>
@@ -264,6 +324,30 @@ export default function AdminScootersPage() {
                     <span className="text-slate-700 font-medium">{value || "—"}</span>
                   </div>
                 ))}
+                <div className="flex gap-2 items-center">
+                  <span className="text-slate-400 w-24 shrink-0">SIM трекера</span>
+                  {editingSimPhoneId === selected.id ? (
+                    <>
+                      <input
+                        value={simPhoneDraft}
+                        onChange={e => setSimPhoneDraft(e.target.value)}
+                        placeholder="+380XXXXXXXXX"
+                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                      />
+                      <button onClick={() => saveSimPhone(selected.id)} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-slate-700 font-medium flex-1">{selected.gps_sim_phone || "—"}</span>
+                      <button
+                        onClick={() => { setEditingSimPhoneId(selected.id); setSimPhoneDraft(selected.gps_sim_phone || ""); }}
+                        className="text-xs text-slate-400 hover:text-slate-700 shrink-0"
+                      >
+                        Редагувати
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {selected.courier && (
@@ -289,36 +373,29 @@ export default function AdminScootersPage() {
                 </div>
               </div>
 
-              {selected.gps_tracker_id && (
+              {selected.gps_sim_phone && (
                 <div className="border-t border-slate-100 pt-4">
-                  <p className="text-xs text-slate-400 mb-2">GPS керування</p>
+                  <p className="text-xs text-slate-400 mb-2">
+                    GPS керування{selected.gps_locked && <span className="text-red-500 font-medium"> · заблоковано</span>}
+                  </p>
                   <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        await fetch("/api/gps/block", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ trackerId: selected.gps_tracker_id })
-                        });
-                        updateStatus(selected.id, "blocked");
-                      }}
-                      className="flex-1 bg-red-100 text-red-700 rounded-xl py-2 text-xs font-medium hover:bg-red-200"
-                    >
-                      🔒 Заблокувати
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await fetch("/api/gps/unblock", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ trackerId: selected.gps_tracker_id })
-                        });
-                        updateStatus(selected.id, "available");
-                      }}
-                      className="flex-1 bg-green-100 text-green-700 rounded-xl py-2 text-xs font-medium hover:bg-green-200"
-                    >
-                      🔓 Розблокувати
-                    </button>
+                    {selected.gps_locked ? (
+                      <button
+                        onClick={() => unblockScooterGps(selected.id)}
+                        disabled={gpsActionLoading}
+                        className="flex-1 bg-green-100 text-green-700 rounded-xl py-2 text-xs font-medium hover:bg-green-200 disabled:opacity-60"
+                      >
+                        🔓 Розблокувати скутер
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => blockScooterGps(selected.id)}
+                        disabled={gpsActionLoading}
+                        className="flex-1 bg-red-100 text-red-700 rounded-xl py-2 text-xs font-medium hover:bg-red-200 disabled:opacity-60"
+                      >
+                        🔒 Заблокувати скутер
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

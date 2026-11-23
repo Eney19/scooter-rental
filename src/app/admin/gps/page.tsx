@@ -514,8 +514,12 @@ export default function AdminGpsPage() {
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50 text-left text-slate-500 text-xs">
                     <th className="px-4 py-3 font-medium">Скутер</th>
-                    <th className="px-4 py-3 font-medium">Кур&apos;єр</th>
+                    <th className="px-4 py-3 font-medium">Місто</th>
+                    <th className="px-4 py-3 font-medium">Модель</th>
                     <th className="px-4 py-3 font-medium">Телефон SIM</th>
+                    <th className="px-4 py-3 font-medium">IMEI</th>
+                    <th className="px-4 py-3 font-medium">ID трекера</th>
+                    <th className="px-4 py-3 font-medium">Кур&apos;єр</th>
                     <th className="px-4 py-3 font-medium">Статус</th>
                     <th className="px-4 py-3 font-medium"></th>
                   </tr>
@@ -527,7 +531,17 @@ export default function AdminGpsPage() {
                       <tr key={s.id}>
                         <td className="px-4 py-3">
                           <div className="font-medium text-slate-900">{s.name}</div>
-                          <div className="text-slate-400 text-xs">{s.model || s.city || "—"}</div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">{s.city || "—"}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600">{s.model || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-700 font-mono text-xs">{s.gps_sim_phone || "—"}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-700 font-mono text-xs">{s.gps_tracker_id || "—"}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-700 font-mono text-xs">{s.gps_device_id || "—"}</span>
                         </td>
                         <td className="px-4 py-3 text-xs">
                           {s.courier ? (
@@ -535,9 +549,6 @@ export default function AdminGpsPage() {
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-slate-700 font-mono text-xs">{s.gps_sim_phone || "—"}</span>
                         </td>
                         <td className="px-4 py-3">
                           {s.gps_locked ? (
@@ -587,7 +598,7 @@ export default function AdminGpsPage() {
                     if (editingId === s.id) {
                       rows.push(
                         <tr key={`${s.id}-edit`}>
-                          <td colSpan={5} className="px-4 py-4 bg-blue-50/50">
+                          <td colSpan={9} className="px-4 py-4 bg-blue-50/50">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div>
                                 <label className="text-xs text-slate-500 mb-1 block">Назва/номер *</label>
@@ -683,7 +694,7 @@ export default function AdminGpsPage() {
                     if (expandedHistoryId === s.id && scooterEdits.length > 0) {
                       rows.push(
                         <tr key={`${s.id}-history`}>
-                          <td colSpan={5} className="px-4 py-3 bg-slate-50">
+                          <td colSpan={9} className="px-4 py-3 bg-slate-50">
                             <div className="space-y-1">
                               {scooterEdits.map(e => (
                                 <div key={e.id} className="text-xs text-slate-500">

@@ -11,6 +11,7 @@ type Scooter = {
   city: string | null;
   status: string | null;
   gps_tracker_id: string | null;
+  gps_device_id: string | null;
   gps_sim_phone: string | null;
   gps_locked: boolean | null;
   gps_locked_at: string | null;
@@ -35,7 +36,7 @@ export default function AdminGpsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const [newScooter, setNewScooter] = useState({
-    name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: ""
+    name: "", city: "Луцьк", gps_tracker_id: "", gps_device_id: "", gps_sim_phone: "", courier_id: ""
   });
   const [courierQuery, setCourierQuery] = useState("");
   const [showCourierOptions, setShowCourierOptions] = useState(false);
@@ -59,7 +60,7 @@ export default function AdminGpsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("scooters")
-      .select("id, name, model, city, status, gps_tracker_id, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text, courier_id, courier:couriers(id, full_name)")
+      .select("id, name, model, city, status, gps_tracker_id, gps_device_id, gps_sim_phone, gps_locked, gps_locked_at, gps_last_ack_at, gps_last_ack_text, courier_id, courier:couriers(id, full_name)")
       .order("name", { ascending: true });
     setScooters((data || []) as unknown as Scooter[]);
     setLoading(false);
@@ -93,6 +94,7 @@ export default function AdminGpsPage() {
       name: newScooter.name.trim(),
       city: newScooter.city,
       gps_tracker_id: newScooter.gps_tracker_id.trim() || null,
+      gps_device_id: newScooter.gps_device_id.trim() || null,
       gps_sim_phone: newScooter.gps_sim_phone.trim() || null,
       courier_id: courierId,
       status: "available",
@@ -120,7 +122,7 @@ export default function AdminGpsPage() {
     });
     setAddSaving(false);
     setShowAdd(false);
-    setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" });
+    setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_device_id: "", gps_sim_phone: "", courier_id: "" });
     setCourierQuery("");
   }
 
@@ -254,11 +256,20 @@ export default function AdminGpsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">GPS трекер ID (IMEI)</label>
+                <label className="text-xs text-slate-500 mb-1 block">IMEI трекера</label>
                 <input
                   value={newScooter.gps_tracker_id}
                   onChange={e => setNewScooter(p => ({ ...p, gps_tracker_id: e.target.value }))}
                   placeholder="869343040709846"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">ID трекера (платформа)</label>
+                <input
+                  value={newScooter.gps_device_id}
+                  onChange={e => setNewScooter(p => ({ ...p, gps_device_id: e.target.value }))}
+                  placeholder="1980261096"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -313,7 +324,7 @@ export default function AdminGpsPage() {
             </div>
             <div className="flex gap-3 mt-4">
               <button
-                onClick={() => { setShowAdd(false); setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_sim_phone: "", courier_id: "" }); setCourierQuery(""); }}
+                onClick={() => { setShowAdd(false); setNewScooter({ name: "", city: "Луцьк", gps_tracker_id: "", gps_device_id: "", gps_sim_phone: "", courier_id: "" }); setCourierQuery(""); }}
                 className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm hover:bg-slate-50"
               >
                 Скасувати

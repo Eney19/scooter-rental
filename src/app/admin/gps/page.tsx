@@ -23,12 +23,38 @@ type Scooter = {
 
 type CourierOption = { id: string; full_name: string };
 
+type ScooterEdit = {
+  id: string;
+  scooter_id: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  edited_at: string;
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  name: "Назва/номер",
+  model: "Модель",
+  city: "Місто",
+  gps_sim_phone: "Телефон SIM",
+  gps_tracker_id: "IMEI",
+  gps_device_id: "ID трекера (платформа)",
+  courier_id: "Кур'єр",
+};
+
 export default function AdminGpsPage() {
   const router = useRouter();
   const [scooters, setScooters] = useState<Scooter[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [phoneDraft, setPhoneDraft] = useState("");
+  const [editDraft, setEditDraft] = useState({
+    name: "", model: "", city: "Луцьк", gps_sim_phone: "", gps_tracker_id: "", gps_device_id: "", courier_id: ""
+  });
+  const [editCourierQuery, setEditCourierQuery] = useState("");
+  const [showEditCourierOptions, setShowEditCourierOptions] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [edits, setEdits] = useState<ScooterEdit[]>([]);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState("all");
   const [rentalFilter, setRentalFilter] = useState<"all" | "rented" | "available">("all");
@@ -52,6 +78,7 @@ export default function AdminGpsPage() {
       setRole(r);
       await loadScooters();
       await loadCouriers();
+      await loadEdits();
     }
     init();
   }, []);
@@ -73,6 +100,14 @@ export default function AdminGpsPage() {
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
     setCouriers((data || []) as CourierOption[]);
+  }
+
+  async function loadEdits() {
+    const { data } = await supabase
+      .from("scooter_edits")
+      .select("*")
+      .order("edited_at", { ascending: false });
+    setEdits((data || []) as ScooterEdit[]);
   }
 
   // Створює новий скутер прямо з вкладки GPS: номер, телефон SIM трекера, ID
@@ -126,19 +161,128 @@ export default function AdminGpsPage() {
     setCourierQuery("");
   }
 
-  function startEdit(s: Scooter) {
+  function startEditScooter(s: Scooter) {
     setEditingId(s.id);
-    setPhoneDraft(s.gps_sim_phone || "");
+    setEditDraft({
+      name: s.name,
+      model: s.model || "",
+      city: s.city || "Луцьк",
+      gps_sim_phone: s.gps_sim_phone || "",
+      gps_tracker_id: s.gps_tracker_id || "",
+      gps_device_id: s.gps_device_id || "",
+      courier_id: s.courier_id || "",
+    });
+    setEditCourierQuery(s.courier?.full_name || "");
+    setShowEditCourierOptions(false);
   }
 
-  async function savePhone(id: string) {
-    const phone = phoneDraft.trim() || null;
-    const { error } = await supabase.from("scooters").update({ gps_sim_phone: phone }).eq("id", id);
-    if (error) {
-      alert(`Не вдалося зберегти: ${error.message}`);
+  function cancelEditScooter() {
+    setEditingId(null);
+    setShowEditCourierOptions(false);
+  }
+
+  async function saveScooterEdit(s: Scooter) {
+    if (!editDraft.name.trim()) {
+      alert("Вкажіть назву/номер скутера");
       return;
     }
-    setScooters(prev => prev.map(s => s.id === id ? { ...s, gps_sim_phone: phone } : s));
+    const newCourierId = editDraft.courier_id || null;
+    let courierToFree: Scooter | undefined;
+    if (newCourierId && newCourierId !== s.courier_id) {
+      courierToFree = scooters.find(x => x.id !== s.id && x.courier_id === newCourierId);
+      if (courierToFree) {
+        const courierName = couriers.find(c => c.id === newCourierId)?.full_name || "цього кур'єра";
+        if (!confirm(`${courierName} вже прив'язаний до "${courierToFree.name}". Перепризначити на "${s.name}"?`)) return;
+      }
+    }
+
+    const oldValues: Record<string, string | null> = {
+      name: s.name,
+      model: s.model,
+      city: s.city,
+      gps_sim_phone: s.gps_sim_phone,
+      gps_tracker_id: s.gps_tracker_id,
+      gps_device_id: s.gps_device_id,
+      courier_id: s.courier?.full_name || null,
+    };
+    const newValues: Record<string, string | null> = {
+      name: editDraft.name.trim(),
+      model: editDraft.model.trim() || null,
+      city: editDraft.city,
+      gps_sim_phone: editDraft.gps_sim_phone.trim() || null,
+      gps_tracker_id: editDraft.gps_tracker_id.trim() || null,
+      gps_device_id: editDraft.gps_device_id.trim() || null,
+      courier_id: newCourierId ? (couriers.find(c => c.id === newCourierId)?.full_name || null) : null,
+    };
+    const dbValues = {
+      name: newValues.name,
+      model: newValues.model,
+      city: newValues.city,
+      gps_sim_phone: newValues.gps_sim_phone,
+      gps_tracker_id: newValues.gps_tracker_id,
+      gps_device_id: newValues.gps_device_id,
+      courier_id: newCourierId,
+    };
+
+    const changedFields = Object.keys(newValues).filter(k => newValues[k] !== oldValues[k]);
+    if (changedFields.length === 0) {
+      setEditingId(null);
+      return;
+    }
+
+    setEditSaving(true);
+
+    // Записуємо старі значення в історію ПЕРЕД оновленням, щоб завжди було видно, що й коли змінили.
+    const historyRows = changedFields.map(field => ({
+      scooter_id: s.id,
+      field,
+      old_value: oldValues[field],
+      new_value: newValues[field],
+    }));
+
+    const { data: insertedEdits, error: historyError } = await supabase
+      .from("scooter_edits")
+      .insert(historyRows)
+      .select();
+    if (historyError) {
+      setEditSaving(false);
+      alert(`Не вдалося зберегти історію редагування: ${historyError.message}`);
+      return;
+    }
+
+    const { error } = await supabase.from("scooters").update(dbValues).eq("id", s.id);
+    if (error) {
+      setEditSaving(false);
+      alert(`Не вдалося зберегти зміни: ${error.message}`);
+      return;
+    }
+
+    if (courierToFree) {
+      await supabase.from("scooters").update({ courier_id: null }).eq("id", courierToFree.id);
+    }
+
+    const newCourierInfo = newCourierId ? couriers.find(c => c.id === newCourierId) || null : null;
+    setScooters(prev => prev.map(x => {
+      if (x.id === s.id) {
+        return {
+          ...x,
+          name: dbValues.name as string,
+          model: dbValues.model,
+          city: dbValues.city,
+          gps_sim_phone: dbValues.gps_sim_phone,
+          gps_tracker_id: dbValues.gps_tracker_id,
+          gps_device_id: dbValues.gps_device_id,
+          courier_id: dbValues.courier_id,
+          courier: newCourierInfo,
+        };
+      }
+      if (courierToFree && x.id === courierToFree.id) {
+        return { ...x, courier_id: null, courier: null };
+      }
+      return x;
+    }));
+    setEdits(prev => [...((insertedEdits || []) as ScooterEdit[]), ...prev]);
+    setEditSaving(false);
     setEditingId(null);
   }
 
@@ -377,72 +521,185 @@ export default function AdminGpsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {withTracker.map(s => (
-                    <tr key={s.id}>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{s.name}</div>
-                        <div className="text-slate-400 text-xs">{s.model || s.city || "—"}</div>
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {s.courier ? (
-                          <a href={`/admin/couriers?open=${s.courier.id}`} className="text-blue-600 hover:underline">{s.courier.full_name}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {editingId === s.id ? (
-                          <div className="flex gap-2 items-center">
-                            <input
-                              value={phoneDraft}
-                              onChange={e => setPhoneDraft(e.target.value)}
-                              placeholder="+380XXXXXXXXX"
-                              className="w-36 rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                            />
-                            <button onClick={() => savePhone(s.id)} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2 items-center">
-                            <span className="text-slate-700 font-mono text-xs">{s.gps_sim_phone || "—"}</span>
-                            <button onClick={() => startEdit(s)} className="text-xs text-slate-400 hover:text-slate-700 shrink-0">Редагувати</button>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {s.gps_locked ? (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">🔒 Заблоковано</span>
-                        ) : (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">🟢 Активний</span>
-                        )}
-                        {s.gps_last_ack_at && (
-                          <div className="text-slate-400 text-[11px] mt-1">
-                            Трекер: «{s.gps_last_ack_text}» {new Date(s.gps_last_ack_at).toLocaleString("uk-UA")}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        {s.gps_sim_phone && (
-                          s.gps_locked ? (
-                            <button
-                              onClick={() => unblockScooterGps(s)}
-                              disabled={actionLoadingId === s.id}
-                              className="text-xs bg-green-100 text-green-700 rounded-lg px-3 py-1.5 font-medium hover:bg-green-200 disabled:opacity-60"
-                            >
-                              🔓 Розблокувати
-                            </button>
+                  {withTracker.map(s => {
+                    const scooterEdits = edits.filter(e => e.scooter_id === s.id);
+                    const rows = [
+                      <tr key={s.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-900">{s.name}</div>
+                          <div className="text-slate-400 text-xs">{s.model || s.city || "—"}</div>
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {s.courier ? (
+                            <a href={`/admin/couriers?open=${s.courier.id}`} className="text-blue-600 hover:underline">{s.courier.full_name}</a>
                           ) : (
-                            <button
-                              onClick={() => blockScooterGps(s)}
-                              disabled={actionLoadingId === s.id}
-                              className="text-xs bg-red-100 text-red-700 rounded-lg px-3 py-1.5 font-medium hover:bg-red-200 disabled:opacity-60"
-                            >
-                              🔒 Заблокувати
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-700 font-mono text-xs">{s.gps_sim_phone || "—"}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {s.gps_locked ? (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">🔒 Заблоковано</span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">🟢 Активний</span>
+                          )}
+                          {s.gps_last_ack_at && (
+                            <div className="text-slate-400 text-[11px] mt-1">
+                              Трекер: «{s.gps_last_ack_text}» {new Date(s.gps_last_ack_at).toLocaleString("uk-UA")}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <div className="flex gap-2 justify-end items-center flex-wrap">
+                            <button onClick={() => editingId === s.id ? cancelEditScooter() : startEditScooter(s)} className="text-xs text-slate-400 hover:text-slate-700 shrink-0">
+                              {editingId === s.id ? "Скасувати" : "✏️ Редагувати"}
                             </button>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                            {scooterEdits.length > 0 && (
+                              <button onClick={() => setExpandedHistoryId(expandedHistoryId === s.id ? null : s.id)} className="text-xs text-slate-400 hover:text-slate-700 shrink-0">
+                                {expandedHistoryId === s.id ? "Сховати історію" : `Змінено (${scooterEdits.length})`}
+                              </button>
+                            )}
+                            {s.gps_sim_phone && (
+                              s.gps_locked ? (
+                                <button
+                                  onClick={() => unblockScooterGps(s)}
+                                  disabled={actionLoadingId === s.id}
+                                  className="text-xs bg-green-100 text-green-700 rounded-lg px-3 py-1.5 font-medium hover:bg-green-200 disabled:opacity-60"
+                                >
+                                  🔓 Розблокувати
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => blockScooterGps(s)}
+                                  disabled={actionLoadingId === s.id}
+                                  className="text-xs bg-red-100 text-red-700 rounded-lg px-3 py-1.5 font-medium hover:bg-red-200 disabled:opacity-60"
+                                >
+                                  🔒 Заблокувати
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </td>
+                      </tr>,
+                    ];
+                    if (editingId === s.id) {
+                      rows.push(
+                        <tr key={`${s.id}-edit`}>
+                          <td colSpan={5} className="px-4 py-4 bg-blue-50/50">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Назва/номер *</label>
+                                <input value={editDraft.name} onChange={e => setEditDraft(p => ({ ...p, name: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"/>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Модель</label>
+                                <input value={editDraft.model} onChange={e => setEditDraft(p => ({ ...p, model: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"/>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Місто</label>
+                                <select value={editDraft.city} onChange={e => setEditDraft(p => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500">
+                                  {["Луцьк", "Рівне", "Львів"].map(ct => <option key={ct}>{ct}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Телефон SIM трекера</label>
+                                <input value={editDraft.gps_sim_phone} onChange={e => setEditDraft(p => ({ ...p, gps_sim_phone: e.target.value }))} placeholder="+380XXXXXXXXX" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"/>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">IMEI трекера</label>
+                                <input value={editDraft.gps_tracker_id} onChange={e => setEditDraft(p => ({ ...p, gps_tracker_id: e.target.value }))} placeholder="869343040709846" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"/>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 mb-1 block">ID трекера (платформа)</label>
+                                <input value={editDraft.gps_device_id} onChange={e => setEditDraft(p => ({ ...p, gps_device_id: e.target.value }))} placeholder="1980261096" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"/>
+                              </div>
+                              <div className="sm:col-span-2 relative">
+                                <label className="text-xs text-slate-500 mb-1 block">Кур&apos;єр, який зараз на ньому катається</label>
+                                <input
+                                  value={editCourierQuery}
+                                  onChange={e => {
+                                    setEditCourierQuery(e.target.value);
+                                    setEditDraft(p => ({ ...p, courier_id: "" }));
+                                    setShowEditCourierOptions(true);
+                                  }}
+                                  onFocus={() => setShowEditCourierOptions(true)}
+                                  onBlur={() => setTimeout(() => setShowEditCourierOptions(false), 150)}
+                                  placeholder="Почніть вводити ім'я..."
+                                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                {editDraft.courier_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditDraft(p => ({ ...p, courier_id: "" })); setEditCourierQuery(""); }}
+                                    className="absolute right-3 top-9 text-slate-400 hover:text-slate-600 text-xs"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                                {showEditCourierOptions && (
+                                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-lg">
+                                    <div
+                                      onClick={() => { setEditDraft(p => ({ ...p, courier_id: "" })); setEditCourierQuery(""); setShowEditCourierOptions(false); }}
+                                      className="px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 cursor-pointer"
+                                    >
+                                      — Без кур&apos;єра —
+                                    </div>
+                                    {couriers
+                                      .filter(c => c.full_name.toLowerCase().includes(editCourierQuery.trim().toLowerCase()))
+                                      .map(c => (
+                                        <div
+                                          key={c.id}
+                                          onClick={() => { setEditDraft(p => ({ ...p, courier_id: c.id })); setEditCourierQuery(c.full_name); setShowEditCourierOptions(false); }}
+                                          className="px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 cursor-pointer"
+                                        >
+                                          {c.full_name}
+                                        </div>
+                                      ))}
+                                    {couriers.filter(c => c.full_name.toLowerCase().includes(editCourierQuery.trim().toLowerCase())).length === 0 && (
+                                      <div className="px-3 py-2 text-sm text-slate-400">Нікого не знайдено</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-3 mt-4">
+                              <button onClick={cancelEditScooter} className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-2.5 text-sm hover:bg-slate-50">
+                                Скасувати
+                              </button>
+                              <button
+                                onClick={() => saveScooterEdit(s)}
+                                disabled={editSaving || !editDraft.name.trim()}
+                                className="flex-1 bg-blue-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                {editSaving ? "Збереження..." : "Зберегти"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (expandedHistoryId === s.id && scooterEdits.length > 0) {
+                      rows.push(
+                        <tr key={`${s.id}-history`}>
+                          <td colSpan={5} className="px-4 py-3 bg-slate-50">
+                            <div className="space-y-1">
+                              {scooterEdits.map(e => (
+                                <div key={e.id} className="text-xs text-slate-500">
+                                  <span className="font-medium text-slate-600">{FIELD_LABELS[e.field] || e.field}:</span>{" "}
+                                  <span className="line-through text-slate-400">{e.old_value || "—"}</span>{" → "}
+                                  <span className="text-slate-700">{e.new_value || "—"}</span>{" "}
+                                  <span className="text-slate-400">({new Date(e.edited_at).toLocaleString("uk-UA")})</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return rows;
+                  })}
                 </tbody>
               </table>
             </div>

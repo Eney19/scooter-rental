@@ -354,7 +354,7 @@ export default function AdminGpsPage() {
         </nav>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className="px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <h2 className="font-bold text-slate-900">GPS-трекери скутерів</h2>
           <div className="flex items-center gap-3">
@@ -368,7 +368,7 @@ export default function AdminGpsPage() {
         </div>
 
         {showAdd && (
-          <div className="bg-white rounded-xl border border-blue-200 p-5 mb-4">
+          <div className="bg-white rounded-xl border border-blue-200 p-5 mb-4 max-w-2xl">
             <h3 className="font-semibold text-slate-900 mb-4">Новий скутер</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>

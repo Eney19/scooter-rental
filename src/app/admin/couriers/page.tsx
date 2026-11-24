@@ -1994,14 +1994,11 @@ export default function AdminCouriersPage() {
                 ) : subsByCourier[selected.id] ? (() => {
                   const sub = subsByCourier[selected.id];
                   const weeks = weeksAheadPaid(sub.expires_at);
-                  const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
                   return (
                     <div className="text-sm space-y-2">
-                      {isPaused(selected) ? null : weeks <= 0 ? (
-                        <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
-                      ) : weeks >= 2 ? (
+                      {!isPaused(selected) && weeks >= 2 && (
                         <p className="text-emerald-600 font-medium text-xs">Це і {weeks - 1} {weeksWord(weeks - 1)} наперед</p>
-                      ) : null}
+                      )}
                       <p className="text-slate-400 text-xs">Сума останньої оплати: {sub.amount} грн</p>
                     </div>
                   );

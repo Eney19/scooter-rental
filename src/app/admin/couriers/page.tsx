@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -1604,18 +1604,29 @@ export default function AdminCouriersPage() {
                     </span>
                   </div>
                 ) : (
-                  <div className="flex gap-2 items-center">
-                    <span className="text-slate-400 w-20 shrink-0">Тариф</span>
-                    <input
-                      type="number"
-                      value={selected.weekly_price ?? ""}
-                      placeholder="грн/тиж"
-                      onChange={e => handleFieldChange("weekly_price", e.target.value)}
-                      onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
-                      className={fieldInputClass}
-                    />
-                    <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
-                  </div>
+                  <>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-20 shrink-0">Тариф</span>
+                      <input
+                        type="number"
+                        value={selected.weekly_price ?? ""}
+                        placeholder="грн/тиж"
+                        onChange={e => handleFieldChange("weekly_price", e.target.value)}
+                        onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
+                        className={fieldInputClass}
+                      />
+                      <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                    </div>
+                    {/* Довідкове значення — стандартний завдаток по місту
+                        курʼєра (не поле вводу, нічого не зберігає). Показуємо,
+                        щоб було видно, що перша оплата = тариф за тиждень +
+                        цей завдаток окремо, і він свідомо не враховується як
+                        орендна плата в розрахунку боргу (calculateRentalLedger). */}
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-20 shrink-0 text-xs">Завдаток</span>
+                      <span className="text-slate-500 text-xs">{getDepositAmount(selected.city)} грн (стандартний для {selected.city || "цього"} міста)</span>
+                    </div>
+                  </>
                 )}
                 <div className="flex gap-2 items-center">
                   <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Модель електроскутера</span>

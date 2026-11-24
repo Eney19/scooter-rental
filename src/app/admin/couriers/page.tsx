@@ -102,19 +102,18 @@ function isPaused(c: Courier): boolean {
   return !!c.paused_from;
 }
 
-function liveDebtAmount(c: Courier, sub?: SubInfo): number | null {
+function liveDebtAmount(c: Courier): number | null {
   // На паузі борг не рахується наживо (і cron не чіпає debt_since/debt_amount) —
   // показуємо лише те, що вже було зафіксовано до паузи.
   if (isPaused(c)) return c.debt_amount ?? null;
   if (c.status !== "debtor" || !c.debt_since) return c.debt_amount ?? null;
   if (c.debt_auto === false) return c.debt_amount ?? null;
-  const expiresAt: Date = sub
-    ? new Date(sub.expires_at)
-    : (() => {
-        const d = new Date(c.debt_since as string);
-        d.setDate(d.getDate() - DEBT_GRACE_DAYS);
-        return d;
-      })();
+  // Завжди рахуємо від debt_since (мінус пільговий день), а НЕ від
+  // subscriptions.expires_at: той може розсинхронізуватись з debt_since
+  // (саме це й сталося тут), і тоді "борг за підписку" й "пеня" рахуються
+  // по двох різних датах одночасно.
+  const expiresAt = new Date(c.debt_since);
+  expiresAt.setDate(expiresAt.getDate() - DEBT_GRACE_DAYS);
   return calculateAutoDebt(getWeeklyPrice(c), expiresAt, c.debt_since, !!c.no_penalty);
 }
 
@@ -1450,7 +1449,7 @@ export default function AdminCouriersPage() {
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
-                          const amount = liveDebtAmount(c, subsByCourier[c.id]);
+                          const amount = liveDebtAmount(c);
                           return amount ? (
                             <span className="font-semibold text-red-600">{amount.toLocaleString("uk-UA")} грн</span>
                           ) : (
@@ -2205,14 +2204,13 @@ export default function AdminCouriersPage() {
                   </div>
                   {selected.debt_since && (() => {
                     const weeklyPrice = getWeeklyPrice(selected);
-                    const sub = subsByCourier[selected.id];
-                    const expiresAt: Date = sub
-                      ? new Date(sub.expires_at)
-                      : (() => {
-                          const d = new Date(selected.debt_since as string);
-                          d.setDate(d.getDate() - DEBT_GRACE_DAYS);
-                          return d;
-                        })();
+                    // Той самий принцип, що й у liveDebtAmount: рахуємо від
+                    // debt_since, а не від subscriptions.expires_at, щоб
+                    // "борг за підписку" і "пеня" нижче завжди рахувались по
+                    // ОДНІЙ і тій самій даті, а не розходились, коли ці два
+                    // поля в базі розсинхронізувались.
+                    const expiresAt = new Date(selected.debt_since as string);
+                    expiresAt.setDate(expiresAt.getDate() - DEBT_GRACE_DAYS);
                     const rentDays = daysOverdue(expiresAt);
                     const baseAmount = calculateOwedRent(weeklyPrice, rentDays);
                     const days = daysSinceDebt(selected.debt_since);
@@ -2244,7 +2242,7 @@ export default function AdminCouriersPage() {
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
                     <input
                       type="number"
-                      value={liveDebtAmount(selected, subsByCourier[selected.id]) ?? selected.debt_amount ?? ""}
+                      value={liveDebtAmount(selected) ?? selected.debt_amount ?? ""}
                       placeholder="0"
                       onChange={e => handleFieldChange("debt_amount" as keyof Courier, e.target.value)}
                       onBlur={e => saveDebtAmount(selected.id, e.target.value)}

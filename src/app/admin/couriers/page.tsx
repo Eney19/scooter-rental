@@ -227,6 +227,10 @@ export default function AdminCouriersPage() {
   const [issueBatteryId, setIssueBatteryId] = useState("");
   const [pauseFromDate, setPauseFromDate] = useState("");
   const [pauseToDate, setPauseToDate] = useState("");
+  // Чернетки для дат, які не зберігаються в БД автоматично по onChange (щоб
+  // гортання нативного календаря стрілочками/коліщатком не перезаписувало
+  // збережену дату) — зберігаються лише по явному кліку на "OK".
+  const [pendingDates, setPendingDates] = useState<Record<string, string>>({});
   const [botPreview, setBotPreview] = useState<{
     status: string;
     paused?: boolean;
@@ -472,6 +476,7 @@ export default function AdminCouriersPage() {
     setShowCashDatePicker(false);
     setPauseFromDate("");
     setPauseToDate("");
+    setPendingDates({});
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -541,6 +546,22 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : c));
     setSelected(prev => prev && prev.id === courierId ? { ...prev, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : prev);
+  }
+
+  // key -> поточне відредаговане (ще не збережене) значення поля дати
+  function dateDraftValue(key: string, stored: string): string {
+    return pendingDates[key] ?? stored;
+  }
+  function setDateDraft(key: string, value: string) {
+    setPendingDates(prev => ({ ...prev, [key]: value }));
+  }
+  function clearDateDraft(key: string) {
+    setPendingDates(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   }
 
   async function updatePaymentDate(paymentId: string, courierId: string, date: string) {
@@ -1900,10 +1921,13 @@ export default function AdminCouriersPage() {
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Скутер здано</span>
                     <input
                       type="date"
-                      value={selected.return_signed_at ? selected.return_signed_at.slice(0, 10) : ""}
-                      onChange={e => updateReturnSignedAt(selected.id, e.target.value)}
+                      value={dateDraftValue(`return:${selected.id}`, selected.return_signed_at ? selected.return_signed_at.slice(0, 10) : "")}
+                      onChange={e => setDateDraft(`return:${selected.id}`, e.target.value)}
                       className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                     />
+                    {pendingDates[`return:${selected.id}`] !== undefined && pendingDates[`return:${selected.id}`] !== (selected.return_signed_at ? selected.return_signed_at.slice(0, 10) : "") && (
+                      <button onClick={() => { updateReturnSignedAt(selected.id, pendingDates[`return:${selected.id}`]); clearDateDraft(`return:${selected.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                    )}
                   </div>
                 ) : subsByCourier[selected.id] ? (() => {
                   const sub = subsByCourier[selected.id];
@@ -1915,19 +1939,25 @@ export default function AdminCouriersPage() {
                         <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата з</span>
                         <input
                           type="date"
-                          value={sub.paid_at ? sub.paid_at.slice(0, 10) : ""}
-                          onChange={e => updateSubscriptionDate(selected.id, sub.id, "paid_at", e.target.value)}
+                          value={dateDraftValue(`sub-paid:${sub.id}`, sub.paid_at ? sub.paid_at.slice(0, 10) : "")}
+                          onChange={e => setDateDraft(`sub-paid:${sub.id}`, e.target.value)}
                           className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                         />
+                        {pendingDates[`sub-paid:${sub.id}`] !== undefined && pendingDates[`sub-paid:${sub.id}`] !== (sub.paid_at ? sub.paid_at.slice(0, 10) : "") && (
+                          <button onClick={() => { updateSubscriptionDate(selected.id, sub.id, "paid_at", pendingDates[`sub-paid:${sub.id}`]); clearDateDraft(`sub-paid:${sub.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                        )}
                       </div>
                       <div className="flex gap-2 items-center">
                         <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата до</span>
                         <input
                           type="date"
-                          value={sub.expires_at ? sub.expires_at.slice(0, 10) : ""}
-                          onChange={e => updateSubscriptionDate(selected.id, sub.id, "expires_at", e.target.value)}
+                          value={dateDraftValue(`sub-expires:${sub.id}`, sub.expires_at ? sub.expires_at.slice(0, 10) : "")}
+                          onChange={e => setDateDraft(`sub-expires:${sub.id}`, e.target.value)}
                           className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                         />
+                        {pendingDates[`sub-expires:${sub.id}`] !== undefined && pendingDates[`sub-expires:${sub.id}`] !== (sub.expires_at ? sub.expires_at.slice(0, 10) : "") && (
+                          <button onClick={() => { updateSubscriptionDate(selected.id, sub.id, "expires_at", pendingDates[`sub-expires:${sub.id}`]); clearDateDraft(`sub-expires:${sub.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                        )}
                       </div>
                       {isPaused(selected) ? null : weeks <= 0 ? (
                         <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
@@ -1961,12 +1991,17 @@ export default function AdminCouriersPage() {
                         <div key={p.id} className={`flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 ${isFailed ? "opacity-70" : ""}`}>
                           <div>
                             {p.wayforpay_id?.startsWith("cash_") ? (
-                              <input
-                                type="date"
-                                value={p.created_at.slice(0, 10)}
-                                onChange={e => updatePaymentDate(p.id, selected.id, e.target.value)}
-                                className="font-medium text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-200 focus:border-emerald-500 focus:outline-none -ml-0.5"
-                              />
+                              <span className="inline-flex items-center gap-1">
+                                <input
+                                  type="date"
+                                  value={dateDraftValue(`payment:${p.id}`, p.created_at.slice(0, 10))}
+                                  onChange={e => setDateDraft(`payment:${p.id}`, e.target.value)}
+                                  className="font-medium text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-200 focus:border-emerald-500 focus:outline-none -ml-0.5"
+                                />
+                                {pendingDates[`payment:${p.id}`] !== undefined && pendingDates[`payment:${p.id}`] !== p.created_at.slice(0, 10) && (
+                                  <button onClick={() => { updatePaymentDate(p.id, selected.id, pendingDates[`payment:${p.id}`]); clearDateDraft(`payment:${p.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                                )}
+                              </span>
                             ) : (
                               <p className="font-medium text-slate-900">{new Date(p.created_at).toLocaleDateString("uk-UA")}</p>
                             )}
@@ -2066,10 +2101,13 @@ export default function AdminCouriersPage() {
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Боржник з</span>
                     <input
                       type="date"
-                      value={selected.debt_since ? selected.debt_since.slice(0, 10) : ""}
-                      onChange={e => updateDebtSince(selected.id, e.target.value)}
+                      value={dateDraftValue(`debt-since:${selected.id}`, selected.debt_since ? selected.debt_since.slice(0, 10) : "")}
+                      onChange={e => setDateDraft(`debt-since:${selected.id}`, e.target.value)}
                       className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                     />
+                    {pendingDates[`debt-since:${selected.id}`] !== undefined && pendingDates[`debt-since:${selected.id}`] !== (selected.debt_since ? selected.debt_since.slice(0, 10) : "") && (
+                      <button onClick={() => { updateDebtSince(selected.id, pendingDates[`debt-since:${selected.id}`]); clearDateDraft(`debt-since:${selected.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                    )}
                   </div>
                   {selected.debt_since && (() => {
                     const weeklyPrice = getWeeklyPrice(selected);
@@ -2133,12 +2171,17 @@ export default function AdminCouriersPage() {
 
               <div className="border-t border-slate-100 pt-4 mb-4">
                 <p className="text-xs text-slate-400 mb-2">Дата старту підписки</p>
-                <input
-                  type="date"
-                  value={selected.subscription_start_date ? selected.subscription_start_date.slice(0, 10) : ""}
-                  onChange={e => updateSubscriptionStart(selected.id, e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                />
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="date"
+                    value={dateDraftValue(`sub-start:${selected.id}`, selected.subscription_start_date ? selected.subscription_start_date.slice(0, 10) : "")}
+                    onChange={e => setDateDraft(`sub-start:${selected.id}`, e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  {pendingDates[`sub-start:${selected.id}`] !== undefined && pendingDates[`sub-start:${selected.id}`] !== (selected.subscription_start_date ? selected.subscription_start_date.slice(0, 10) : "") && (
+                    <button onClick={() => { updateSubscriptionStart(selected.id, pendingDates[`sub-start:${selected.id}`]); clearDateDraft(`sub-start:${selected.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                  )}
+                </div>
               </div>
 
               {selected.contract_pdf_url && (

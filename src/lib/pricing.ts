@@ -212,3 +212,60 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     const penalty = calculatePenalty(daysSinceDebt(debtSince), noPenalty);
     return { paidThroughDate: paidThrough, daysLate, rentOwed, penalty, totalDebt: rentOwed + penalty };
   }
+
+  // Повна "бухгалтерська" картина оренди за методикою: нараховуємо оренду
+  // за КОЖЕН день періоду оренди (від дати старту підписки до дати
+  // повернення скутера, або до сьогодні, якщо він ще в оренді — обидві
+  // дати включно) за денною ставкою, віднімаємо суму всіх фактично
+  // внесених оплат за скутер (без завдатку й акумулятора — ті самі
+  // виключення, що й у recalculateDebtFromHistory) і отримуємо загальний
+  // залишок боргу за весь час оренди. Прострочення й пеню беремо з
+  // recalculateDebtFromHistory — вони вже рахуються саме так, як описано
+  // (дата, по яку реально оплачено, і дні прострочення від неї), тож
+  // дублювати цю логіку тут не потрібно: "загальний борг за оренду" і
+  // "прострочений борг" — свідомо різні числа (частина нарахованого може
+  // ще не бути простроченою).
+  export type RentalLedger = {
+    periodDays: number;
+    accrued: number;
+    paid: number;
+    remainingDebt: number;
+    daysLate: number;
+    penalty: number;
+  };
+
+  function startOfDay(d: Date): Date {
+    const copy = new Date(d);
+    copy.setHours(0, 0, 0, 0);
+    return copy;
+  }
+
+  export function calculateRentalLedger(
+    weeklyPrice: number,
+    subscriptionStartDate: string | Date | null,
+    returnDate: string | Date | null,
+    payments: RecalcPaymentInput[],
+    noPenalty = false
+  ): RentalLedger {
+    const dayRate = weeklyPrice / 7;
+    const start = subscriptionStartDate ? startOfDay(new Date(subscriptionStartDate)) : null;
+    const end = startOfDay(returnDate ? new Date(returnDate) : new Date());
+
+    let periodDays = 0;
+    if (start) {
+      const diffMs = end.getTime() - start.getTime();
+      periodDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1); // обидві дати включно
+    }
+
+    const accrued = Math.round(periodDays * dayRate);
+
+    const paid = payments
+      .filter(p => p.status !== "failed")
+      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.deposit || 0) - (p.battery_amount || 0)), 0);
+
+    const remainingDebt = Math.max(0, accrued - paid);
+
+    const { daysLate, penalty } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty);
+
+    return { periodDays, accrued, paid, remainingDebt, daysLate, penalty };
+  }

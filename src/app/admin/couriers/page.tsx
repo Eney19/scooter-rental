@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateAutoDebt, calculateDebtSince, recalculateDebtFromHistory, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateAutoDebt, calculateDebtSince, recalculateDebtFromHistory, calculateRentalLedger, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -235,6 +235,7 @@ export default function AdminCouriersPage() {
   // частковою оплатою) — показуємо лише за запитом, нічого не змінюємо, поки
   // адмін явно не натисне "Застосувати".
   const [recalcResult, setRecalcResult] = useState<RecalculatedDebt | null>(null);
+  const [ledgerExpanded, setLedgerExpanded] = useState(false);
   const [botPreview, setBotPreview] = useState<{
     status: string;
     paused?: boolean;
@@ -501,6 +502,7 @@ export default function AdminCouriersPage() {
     setPauseToDate("");
     setPendingDates({});
     setRecalcResult(null);
+    setLedgerExpanded(false);
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -2161,6 +2163,61 @@ export default function AdminCouriersPage() {
                           Застосувати
                         </button>
                       </div>
+                    )}
+                  </div>
+                  <div className="border border-slate-200 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setLedgerExpanded(v => !v)}
+                      className="w-full flex items-center justify-between px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      <span>📊 Розрахунок оренди і боргу</span>
+                      <span>{ledgerExpanded ? "▲" : "▼"}</span>
+                    </button>
+                    {ledgerExpanded && (
+                      courierPaymentsLoading ? (
+                        <p className="px-2 pb-2 text-xs text-slate-300">Завантаження...</p>
+                      ) : !selected.subscription_start_date ? (
+                        <p className="px-2 pb-2 text-xs text-slate-300">Немає дати старту підписки</p>
+                      ) : (() => {
+                        const ledger = calculateRentalLedger(
+                          getWeeklyPrice(selected),
+                          selected.subscription_start_date,
+                          selected.status === "inactive" ? selected.return_signed_at : null,
+                          courierPayments,
+                          !!selected.no_penalty
+                        );
+                        return (
+                          <table className="w-full text-xs">
+                            <tbody>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Період оренди</td>
+                                <td className="px-2 py-1 text-right font-medium">{ledger.periodDays} {daysWord(ledger.periodDays)}</td>
+                              </tr>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Нараховано</td>
+                                <td className="px-2 py-1 text-right font-medium">{ledger.accrued} грн</td>
+                              </tr>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Оплачено</td>
+                                <td className="px-2 py-1 text-right font-medium">{ledger.paid} грн</td>
+                              </tr>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Залишок боргу</td>
+                                <td className="px-2 py-1 text-right font-medium">{ledger.remainingDebt} грн</td>
+                              </tr>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Прострочення</td>
+                                <td className="px-2 py-1 text-right font-medium">{ledger.daysLate} {daysWord(ledger.daysLate)}</td>
+                              </tr>
+                              <tr className="border-t border-slate-100">
+                                <td className="px-2 py-1 text-slate-400">Пеня</td>
+                                <td className="px-2 py-1 text-right font-medium">{selected.no_penalty ? "вимкнена" : `${ledger.penalty} грн`}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        );
+                      })()
                     )}
                   </div>
                   <div className="flex gap-2 items-center">

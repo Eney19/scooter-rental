@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince, calculateAutoDebt } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty, debt_since, debt_auto")
+      .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty, debt_since, debt_auto, subscription_start_date")
       .eq("id", courierId)
       .single();
 
@@ -39,20 +40,24 @@ export async function POST(req: NextRequest) {
     // заздалегідь (cash-payment-preview) і може їх відредагувати — якщо
     // передані rentOverride/depositOverride, довіряємо їм замість перерахунку.
     const firstPayment = await shouldChargeDeposit(courierId);
-    const rentAmount = typeof rentOverride === "number" ? rentOverride : totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
-    const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
-    const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-    const scooterAmount = rentAmount - batteryAmount;
-    const amount = rentAmount + deposit;
     // Чи покриває фактично прийнята сума ВЕСЬ нарахований прострочений борг
     // (а не лише стільки, скільки кур'єр зараз зміг заплатити). Раніше будь-
     // який готівковий платіж, навіть менший за реально нараховане, одразу
     // посував підписку на весь прострочений період і обнуляв борг — ніби
     // оплачено повністю (саме так 2800 грн за 36 днів прострочення стерли
-    // борг у ~16 150 грн). totalWithPenalty тут рахуємо завжди за фактичним
-    // "late", а не rentOverride — щоб порівняння не залежало від того, що
-    // адмін підставив у форму.
-    const fullRentOwed = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
+    // борг у ~16 150 грн). Якщо курʼєр прострочив (late > 0) — "скільки
+    // всього він винен" тепер береться з повної історії платежів
+    // (Нараховано − Оплачено + Пеня, calculateDebtLedger/loadCourierDebtLedger),
+    // а не лише з поточного тижня; якщо ще не прострочив (нове взяття або
+    // оплата наперед) — як і раніше, це просто рівно один тижневий тариф.
+    const fullRentOwed = late > 0
+      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+      : getWeeklyPrice(courier);
+    const rentAmount = typeof rentOverride === "number" ? rentOverride : fullRentOwed;
+    const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
+    const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
+    const scooterAmount = rentAmount - batteryAmount;
+    const amount = rentAmount + deposit;
     const isPartialRentPayment = scooterAmount < fullRentOwed;
     // Дата, яку адмін вказав як фактичну дату готівкової оплати (може бути
     // заднім числом); якщо не передано — поточний момент.
@@ -157,7 +162,13 @@ export async function POST(req: NextRequest) {
       const debtSince = (courier.debt_since && courier.debt_auto !== false)
         ? courier.debt_since
         : calculateDebtSince(expiresAt).toISOString();
-      remainingDebtAmount = calculateAutoDebt(getWeeklyPrice(courier), expiresAt, debtSince, !!courier.no_penalty);
+      remainingDebtAmount = (await loadCourierDebtLedger(
+        courierId,
+        getWeeklyPrice(courier),
+        courier.subscription_start_date ?? now,
+        null,
+        !!courier.no_penalty
+      )).totalOwed;
 
       const { data: debtRows, error: debtError } = await supabaseAdmin
         .from("couriers")

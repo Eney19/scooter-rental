@@ -6,11 +6,9 @@ import {
   resolveDeposit,
   getWeeklyPrice,
   daysOverdue,
-  calculateOwedRent,
-  calculatePenalty,
-  daysSinceDebt,
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 import { requestCashPayment } from "@/lib/cash-request";
 import { isPaused } from "@/lib/pause";
@@ -63,6 +61,7 @@ type Courier = {
   no_penalty: boolean | null;
   paused_from: string | null;
   paused_until: string | null;
+  subscription_start_date: string | null;
 };
 
 type Draft = { city: string; base: number; model: string; batteries: string[] };
@@ -78,7 +77,7 @@ type CallbackQuery = {
 const COURIER_COLUMNS =
   "id, full_name, phone, city, status, weekly_price, rental_type, scooter_model, battery_types, " +
   "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty, " +
-  "paused_from, paused_until";
+  "paused_from, paused_until, subscription_start_date";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
 
@@ -252,12 +251,20 @@ async function getQuote(courier: Courier) {
     .maybeSingle();
 
   const late = lastActive ? daysOverdue(lastActive.expires_at) : 0;
-  // Якщо адмін вручну зафіксував суму боргу (debt_auto=false) — довіряємо їй,
-  // інакше рахуємо наживо (пропорційно дням прострочення), а не з можливо
-  // застарілого couriers.debt_amount.
+  // Якщо адмін вручну зафіксував суму боргу (debt_auto=false) — довіряємо їй.
+  // Інакше, якщо прострочено — рахуємо наживо з повної історії платежів
+  // (Нараховано − Оплачено + Пеня, та сама формула, що й /api/monopay/create);
+  // якщо не прострочено — звичайний тижневий тариф.
   const useManualOverride = courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number";
-  const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(baseWeekly, late);
-  const penalty = useManualOverride ? 0 : calculatePenalty(late, !!courier.no_penalty);
+  let rentOwed = baseWeekly;
+  let penalty = 0;
+  if (useManualOverride) {
+    rentOwed = courier.debt_amount as number;
+  } else if (late > 0) {
+    const ledger = await loadCourierDebtLedger(courier.id, baseWeekly, courier.subscription_start_date, null, !!courier.no_penalty);
+    rentOwed = ledger.remainingDebt;
+    penalty = ledger.penalty;
+  }
 
   const first = await shouldChargeDeposit(courier.id);
   const deposit = resolveDeposit(courier, first);
@@ -308,18 +315,26 @@ async function sendStatus(chatId: number, courier: Courier) {
     }
   }
   if (!paused && status === "debtor") {
-    // Борг окремо (пропорційно дням прострочення), пеня окремо, разом —
-    // так само, як у щоденному повідомленні про заборгованість (cron debtor-check).
-    const weeklyPrice = getWeeklyPrice(courier);
-    const rentDays = sub ? daysOverdue(sub.expires_at) : 0;
+    // Борг окремо, пеня окремо, разом — з повної історії платежів
+    // (Нараховано − Оплачено + Пеня), та сама формула, що й на оплаті.
     const useManualOverride = courier.debt_auto === false && typeof courier.debt_amount === "number";
-    const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, rentDays);
-    const penaltyDays = courier.debt_since ? daysSinceDebt(courier.debt_since) : 0;
-    const penalty = useManualOverride ? 0 : calculatePenalty(penaltyDays, !!courier.no_penalty);
+    let rentOwed: number;
+    let penalty: number;
+    let rentDays: number;
+    if (useManualOverride) {
+      rentOwed = courier.debt_amount as number;
+      penalty = 0;
+      rentDays = sub ? daysOverdue(sub.expires_at) : 0;
+    } else {
+      const ledger = await loadCourierDebtLedger(courier.id, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty);
+      rentOwed = ledger.remainingDebt;
+      penalty = ledger.penalty;
+      rentDays = ledger.daysLate;
+    }
     const total = rentOwed + penalty;
     text += `\n💸 <b>Заборгованість</b>\nБорг за підписку${rentDays > 0 ? ` (${rentDays} ${daysWord(rentDays)} прострочення)` : ""}: ${rentOwed} грн\n`;
     if (penalty > 0) {
-      text += `Пеня (${penaltyDays} ${daysWord(penaltyDays)} × ${DEBT_PENALTY_PER_DAY} грн): ${penalty} грн\n`;
+      text += `Пеня: ${penalty} грн\n`;
     }
     text += `Разом до сплати: <b>${total} грн</b>\n`;
   }
@@ -362,12 +377,15 @@ async function sendPayScreen(chatId: number, messageId: number | null, courier: 
   if (q.deposit > 0) parts.push(`завдаток ${q.deposit} грн`);
 
   const isActive = courier.status === "active";
+  const isDebtor = courier.status === "debtor";
   const text =
     `💳 <b>${isActive ? "Оплата наперед" : "Оплата оренди"}</b>\n\n` +
     `${tariffLine(courier)}\n\n` +
     `${parts.join(" + ")}\n` +
     `Разом: <b>${q.total} грн</b>` +
-    (isActive ? " за ще 7 днів" : " за 7 днів") +
+    // Для боржника сума — це весь накопичений борг (Нараховано − Оплачено +
+    // Пеня), а не рівно 7 днів наперед, тож "за 7 днів" тут було б оманливо.
+    (isDebtor ? " — щоб погасити заборгованість" : isActive ? " за ще 7 днів" : " за 7 днів") +
     (q.deposit > 0 ? "\n\nЗавдаток стягується одноразово й повертається при поверненні скутера." : "") +
     `\n\nОберіть спосіб оплати:`;
 

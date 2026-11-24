@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, calculatePenalty, totalWithPenalty } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id, paused_from)
+        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id, paused_from, subscription_start_date)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());
@@ -49,12 +50,14 @@ export async function GET(req: NextRequest) {
 
     for (const sub of overdueSubs) {
       const courier = sub.courier as unknown as {
+        id: string;
         full_name: string;
         city: string;
         weekly_price: number | null;
         no_penalty: boolean | null;
         telegram_chat_id: number | null;
         paused_from: string | null;
+        subscription_start_date: string | null;
       } | null;
 
       if (!courier || !courier.telegram_chat_id) continue;
@@ -65,9 +68,10 @@ export async function GET(req: NextRequest) {
 
       const baseAmount = getWeeklyPrice(courier);
       const noPenalty = !!courier.no_penalty;
-      const penalty = calculatePenalty(late, noPenalty);
-      const total = totalWithPenalty(baseAmount, late, noPenalty);
-      const breakdown = noPenalty ? "" : ` (${baseAmount} + ${penalty} пеня)`;
+      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, noPenalty);
+      const penalty = ledger.penalty;
+      const total = ledger.totalOwed;
+      const breakdown = noPenalty ? "" : ` (${ledger.remainingDebt} + ${penalty} пеня)`;
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://powerdrive.in.ua";
       const payUrl = `${appUrl}/payment/${sub.courier_id}`;
 
@@ -90,7 +94,11 @@ export async function GET(req: NextRequest) {
           `⚠️ <b>Прострочена оплата оренди</b>\n\n` +
           `Ваша підписка на електроскутер PowerDrive закінчилась <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>.\n\n` +
           `Минуло днів прострочення: <b>${late}</b>\n` +
-          (noPenalty ? "\n" : `Пеня: 50 грн × ${late} ${late === 1 ? "день" : "дні"} = ${penalty} грн\n\n`) +
+          // Дні тут — ledger.daysLate (та сама дата, з якої порахована
+          // penalty), а не "late" вище (той зав'язаний на subscriptions.expires_at
+          // і керує лише тригером блокування на 3-й день) — інакше 50×дні
+          // може не збігатися з показаною сумою пені.
+          (noPenalty ? "\n" : `Пеня: 50 грн × ${ledger.daysLate} ${ledger.daysLate === 1 ? "день" : "дні"} = ${penalty} грн\n\n`) +
           `💰 Сума до сплати: <b>${total} грн</b>${breakdown}\n\n` +
           `<a href="${payUrl}">💳 Оплатити онлайн</a>\n\n` +
           `Або зверніться до адміністратора для оплати готівкою.` +

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateAutoDebt, calculateDebtSince, recalculateDebtFromHistory, calculateRentalLedger, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -102,19 +102,15 @@ function isPaused(c: Courier): boolean {
   return !!c.paused_from;
 }
 
-function liveDebtAmount(c: Courier): number | null {
+function liveDebtAmount(c: Courier, payments: RecalcPaymentInput[]): number | null {
   // На паузі борг не рахується наживо (і cron не чіпає debt_since/debt_amount) —
   // показуємо лише те, що вже було зафіксовано до паузи.
   if (isPaused(c)) return c.debt_amount ?? null;
   if (c.status !== "debtor" || !c.debt_since) return c.debt_amount ?? null;
   if (c.debt_auto === false) return c.debt_amount ?? null;
-  // Завжди рахуємо від debt_since (мінус пільговий день), а НЕ від
-  // subscriptions.expires_at: той може розсинхронізуватись з debt_since
-  // (саме це й сталося тут), і тоді "борг за підписку" й "пеня" рахуються
-  // по двох різних датах одночасно.
-  const expiresAt = new Date(c.debt_since);
-  expiresAt.setDate(expiresAt.getDate() - DEBT_GRACE_DAYS);
-  return calculateAutoDebt(getWeeklyPrice(c), expiresAt, c.debt_since, !!c.no_penalty);
+  // Єдина формула боргу в усій системі: Нараховано (дні оренди × денна
+  // ставка, від дати старту підписки) − Оплачено (історія платежів) + Пеня.
+  return calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, payments, !!c.no_penalty).totalOwed;
 }
 
 // Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
@@ -234,8 +230,7 @@ export default function AdminCouriersPage() {
   // чи subscriptions.expires_at, які могли бути неправильно обнулені
   // частковою оплатою) — показуємо лише за запитом, нічого не змінюємо, поки
   // адмін явно не натисне "Застосувати".
-  const [recalcResult, setRecalcResult] = useState<RecalculatedDebt | null>(null);
-  const [ledgerExpanded, setLedgerExpanded] = useState(false);
+  const [recalcResult, setRecalcResult] = useState<DebtLedger | null>(null);
   const [botPreview, setBotPreview] = useState<{
     status: string;
     paused?: boolean;
@@ -253,6 +248,11 @@ export default function AdminCouriersPage() {
   const [subsByCourier, setSubsByCourier] = useState<Record<string, SubInfo>>({});
   const [courierPayments, setCourierPayments] = useState<PaymentRecord[]>([]);
   const [courierPaymentsLoading, setCourierPaymentsLoading] = useState(false);
+  // Платежі ВСІХ кур'єрів одним запитом (на відміну від courierPayments, яка
+  // довантажує детально лише вибраного) — потрібні, щоб рахувати "Борг" у
+  // таблиці списку по тій самій єдиній формулі (calculateDebtLedger), а не
+  // лише на картці вибраного кур'єра.
+  const [paymentsByCourier, setPaymentsByCourier] = useState<Record<string, RecalcPaymentInput[]>>({});
   const [rentalHistory, setRentalHistory] = useState<RentalPeriod[]>([]);
   const [rentalHistoryLoading, setRentalHistoryLoading] = useState(false);
   const [courierScooter, setCourierScooter] = useState<{
@@ -300,9 +300,10 @@ export default function AdminCouriersPage() {
         setRecalcResult(null);
         return;
       }
-      setRecalcResult(recalculateDebtFromHistory(
+      setRecalcResult(calculateDebtLedger(
         getWeeklyPrice(selected),
         selected.subscription_start_date,
+        selected.status === "inactive" ? selected.return_signed_at : null,
         courierPayments,
         !!selected.no_penalty
       ));
@@ -327,6 +328,16 @@ export default function AdminCouriersPage() {
       map[s.courier_id] = { id: s.id, expires_at: s.expires_at, paid_at: s.paid_at, amount: s.amount };
     });
     setSubsByCourier(map);
+
+    const { data: allPayments } = await supabase
+      .from("payments")
+      .select("courier_id, amount, deposit, battery_amount, status, created_at")
+      .in("status", ["success", "failed"]);
+    const paymentsMap: Record<string, RecalcPaymentInput[]> = {};
+    (allPayments || []).forEach((p) => {
+      (paymentsMap[p.courier_id] ??= []).push(p);
+    });
+    setPaymentsByCourier(paymentsMap);
 
     const { data: scootersData } = await supabase
       .from("scooters")
@@ -502,7 +513,6 @@ export default function AdminCouriersPage() {
     setPauseToDate("");
     setPendingDates({});
     setRecalcResult(null);
-    setLedgerExpanded(false);
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -794,21 +804,21 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_since: value, debt_auto: false } : null);
   }
 
+  // Історія платежів для кур'єра: для щойно відкритого на картці беремо
+  // свіжозавантажену (і синхронну з ручними правками в "Історії платежів")
+  // courierPayments, для решти — масовий paymentsByCourier з loadCouriers().
+  function paymentsForCourier(id: string): RecalcPaymentInput[] {
+    if (selected?.id === id) return courierPayments;
+    return paymentsByCourier[id] || [];
+  }
+
   // Галочка "Не нараховувати пеню": якщо борг рахується автоматично — одразу
   // перераховуємо суму (без пені / з пенею), далі це робить щоденний cron.
   async function toggleNoPenalty(id: string, value: boolean) {
     const c = couriers.find(x => x.id === id) ?? (selected?.id === id ? selected : null);
     const patch: Record<string, unknown> = { no_penalty: value };
     if (c && c.status === "debtor" && c.debt_auto && c.debt_since) {
-      const sub = subsByCourier[id];
-      const expiresAt: Date = sub
-        ? new Date(sub.expires_at)
-        : (() => {
-            const d = new Date(c.debt_since as string);
-            d.setDate(d.getDate() - DEBT_GRACE_DAYS);
-            return d;
-          })();
-      patch.debt_amount = calculateAutoDebt(getWeeklyPrice(c), expiresAt, c.debt_since, value);
+      patch.debt_amount = calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, paymentsForCourier(id), value).totalOwed;
     }
     const { error } = await supabase.from("couriers").update(patch).eq("id", id);
     if (error) {
@@ -834,8 +844,8 @@ export default function AdminCouriersPage() {
 
   // Записує відновлений результат у couriers (тільки коли адмін явно
   // натиснув "Застосувати" після перегляду цифр) — debt_auto: true для
-  // боржника, щоб далі цей borg продовжував рахуватись наживо (тим самим
-  // calculateAutoDebt), з правильним debt_since, а не застиглим числом.
+  // боржника, щоб далі цей борг продовжував рахуватись наживо (тим самим
+  // calculateDebtLedger), з правильним debt_since, а не застиглим числом.
   async function applyRecalculatedDebt() {
     if (!selected || !recalcResult) return;
     const isDebtor = recalcResult.daysLate > 0;
@@ -843,7 +853,7 @@ export default function AdminCouriersPage() {
       ? {
           status: "debtor",
           debt_since: calculateDebtSince(recalcResult.paidThroughDate).toISOString(),
-          debt_amount: recalcResult.totalDebt,
+          debt_amount: recalcResult.totalOwed,
           debt_auto: true,
         }
       : {
@@ -1440,7 +1450,7 @@ export default function AdminCouriersPage() {
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
-                          const amount = liveDebtAmount(c);
+                          const amount = liveDebtAmount(c, paymentsForCourier(c.id));
                           return amount ? (
                             <span className="font-semibold text-red-600">{amount.toLocaleString("uk-UA")} грн</span>
                           ) : (
@@ -2132,29 +2142,38 @@ export default function AdminCouriersPage() {
                     ) : (
                       <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs space-y-0.5">
                         <p className="flex justify-between text-slate-600">
-                          <span>Реально оплачено по</span><span>{recalcResult.paidThroughDate.toLocaleDateString("uk-UA")}</span>
+                          <span>Період оренди</span><span>{recalcResult.periodDays} {daysWord(recalcResult.periodDays)}</span>
+                        </p>
+                        <p className="flex justify-between text-slate-600">
+                          <span>Нараховано</span><span>{recalcResult.accrued} грн</span>
+                        </p>
+                        <p className="flex justify-between text-slate-600">
+                          <span>Оплачено</span><span>{recalcResult.paid} грн</span>
+                        </p>
+                        <p className="flex justify-between font-medium text-slate-700">
+                          <span>Залишок боргу</span><span>{recalcResult.remainingDebt} грн</span>
                         </p>
                         {recalcResult.daysLate > 0 ? (
                           <>
                             <p className="flex justify-between text-slate-600">
-                              <span>Борг за підписку ({recalcResult.daysLate} {daysWord(recalcResult.daysLate)} прострочення)</span><span>{recalcResult.rentOwed} грн</span>
+                              <span>Прострочення</span><span>{recalcResult.daysLate} {daysWord(recalcResult.daysLate)}</span>
                             </p>
                             <p className="flex justify-between text-slate-600">
                               <span>{selected.no_penalty ? "Пеня вимкнена" : "Пеня"}</span><span>{recalcResult.penalty} грн</span>
                             </p>
                             <p className="flex justify-between font-medium text-blue-700 border-t border-blue-100 pt-0.5">
-                              <span>Разом насправді</span><span>{recalcResult.totalDebt} грн</span>
+                              <span>Разом</span><span>{recalcResult.totalOwed} грн</span>
                             </p>
                           </>
                         ) : (
-                          <p className="text-emerald-600 font-medium">За історією платежів кур&apos;єр не винен — оплачено наперед.</p>
+                          <p className="text-emerald-600 font-medium">Прострочення немає.</p>
                         )}
                         <p className="text-slate-400">
-                          Рахується від дати старту підписки по всій історії платежів (акумулятор у розрахунок не входить); поточне &quot;Борг&quot; на картці — {selected.debt_amount ?? 0} грн.
+                          Оплачено по {recalcResult.paidThroughDate.toLocaleDateString("uk-UA")}; рахується від дати старту підписки по всій історії платежів (акумулятор у розрахунок не входить); поточне &quot;Борг&quot; на картці — {selected.debt_amount ?? 0} грн.
                         </p>
                         <button
                           onClick={() => {
-                            if (confirm(`Застосувати перераховане: ${recalcResult.daysLate > 0 ? `борг ${recalcResult.totalDebt} грн, боржник з ${calculateDebtSince(recalcResult.paidThroughDate).toLocaleDateString("uk-UA")}` : "без боргу"}? Це перезапише поточні Статус/Боржник з/Сума боргу.`)) {
+                            if (confirm(`Застосувати перераховане: ${recalcResult.daysLate > 0 ? `борг ${recalcResult.totalOwed} грн, боржник з ${calculateDebtSince(recalcResult.paidThroughDate).toLocaleDateString("uk-UA")}` : "без боргу"}? Це перезапише поточні Статус/Боржник з/Сума боргу.`)) {
                               applyRecalculatedDebt();
                             }
                           }}
@@ -2165,66 +2184,11 @@ export default function AdminCouriersPage() {
                       </div>
                     )}
                   </div>
-                  <div className="border border-slate-200 rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => setLedgerExpanded(v => !v)}
-                      className="w-full flex items-center justify-between px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700"
-                    >
-                      <span>📊 Розрахунок оренди і боргу</span>
-                      <span>{ledgerExpanded ? "▲" : "▼"}</span>
-                    </button>
-                    {ledgerExpanded && (
-                      courierPaymentsLoading ? (
-                        <p className="px-2 pb-2 text-xs text-slate-300">Завантаження...</p>
-                      ) : !selected.subscription_start_date ? (
-                        <p className="px-2 pb-2 text-xs text-slate-300">Немає дати старту підписки</p>
-                      ) : (() => {
-                        const ledger = calculateRentalLedger(
-                          getWeeklyPrice(selected),
-                          selected.subscription_start_date,
-                          selected.status === "inactive" ? selected.return_signed_at : null,
-                          courierPayments,
-                          !!selected.no_penalty
-                        );
-                        return (
-                          <table className="w-full text-xs">
-                            <tbody>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Період оренди</td>
-                                <td className="px-2 py-1 text-right font-medium">{ledger.periodDays} {daysWord(ledger.periodDays)}</td>
-                              </tr>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Нараховано</td>
-                                <td className="px-2 py-1 text-right font-medium">{ledger.accrued} грн</td>
-                              </tr>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Оплачено</td>
-                                <td className="px-2 py-1 text-right font-medium">{ledger.paid} грн</td>
-                              </tr>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Залишок боргу</td>
-                                <td className="px-2 py-1 text-right font-medium">{ledger.remainingDebt} грн</td>
-                              </tr>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Прострочення</td>
-                                <td className="px-2 py-1 text-right font-medium">{ledger.daysLate} {daysWord(ledger.daysLate)}</td>
-                              </tr>
-                              <tr className="border-t border-slate-100">
-                                <td className="px-2 py-1 text-slate-400">Пеня</td>
-                                <td className="px-2 py-1 text-right font-medium">{selected.no_penalty ? "вимкнена" : `${ledger.penalty} грн`}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        );
-                      })()
-                    )}
-                  </div>
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
                     <input
                       type="number"
-                      value={liveDebtAmount(selected) ?? selected.debt_amount ?? ""}
+                      value={liveDebtAmount(selected, paymentsForCourier(selected.id)) ?? selected.debt_amount ?? ""}
                       placeholder="0"
                       onChange={e => handleFieldChange("debt_amount" as keyof Courier, e.target.value)}
                       onBlur={e => saveDebtAmount(selected.id, e.target.value)}

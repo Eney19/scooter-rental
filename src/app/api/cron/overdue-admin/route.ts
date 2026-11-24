@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, calculatePenalty, totalWithPenalty } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 import { getAdminChatIds } from "@/lib/telegram";
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, amount, courier_id,
-        courier:couriers(full_name, phone, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id, paused_from)
+        courier:couriers(id, full_name, phone, city, weekly_price, rental_type, battery_types, no_penalty, telegram_chat_id, paused_from, subscription_start_date)
       `)
       .eq("status", "active")
       .lt("expires_at", now.toISOString());
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
 
     for (const sub of overdueSubs) {
       const courier = sub.courier as unknown as {
+        id: string;
         full_name: string;
         phone: string;
         city: string;
@@ -68,6 +70,7 @@ export async function GET(req: NextRequest) {
         no_penalty: boolean | null;
         telegram_chat_id: number | null;
         paused_from: string | null;
+        subscription_start_date: string | null;
       } | null;
 
       if (!courier) continue;
@@ -78,8 +81,9 @@ export async function GET(req: NextRequest) {
 
       const baseAmount = getWeeklyPrice(courier);
       const noPenalty = !!courier.no_penalty;
-      const penalty = calculatePenalty(late, noPenalty);
-      const total = totalWithPenalty(baseAmount, late, noPenalty);
+      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, noPenalty);
+      const penalty = ledger.penalty;
+      const total = ledger.totalOwed;
 
       const adminChatIds = getAdminChatIds();
       if (adminChatIds.length > 0) {
@@ -94,7 +98,7 @@ export async function GET(req: NextRequest) {
             `Прострочено з: <b>${new Date(sub.expires_at).toLocaleDateString("uk-UA")}</b>\n` +
             (noPenalty
               ? `Сума: <b>${total} грн</b> (пеню вимкнено для цього курʼєра)\n\n`
-              : `Сума з пенею: <b>${total} грн</b> (${baseAmount} + ${penalty})\n\n`) +
+              : `Сума з пенею: <b>${total} грн</b> (борг ${ledger.remainingDebt} + пеня ${penalty})\n\n`) +
             `${late === 3 ? "🚫 Курʼєру надіслано повідомлення про блокування\n" : ""}` +
             `${courier.telegram_chat_id ? "✅ Курʼєр підключив Telegram" : "⚠️ Курʼєр не підключив Telegram"}`,
             "💵 Позначити оплату готівкою",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, calculateDebtSince, calculateAutoDebt, calculateOwedRent, calculatePenalty, daysOverdue, daysSinceDebt, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getWeeklyPrice, calculateDebtSince, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
       .from("subscriptions")
       .select(`
         id, expires_at, courier_id,
-        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, status, debt_since, debt_auto, no_penalty, telegram_chat_id, paused_from)
+        courier:couriers(id, full_name, city, weekly_price, rental_type, battery_types, status, debt_since, debt_auto, no_penalty, telegram_chat_id, paused_from, subscription_start_date)
       `)
       .eq("status", "active")
       .lt("expires_at", graceThreshold.toISOString());
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest) {
         no_penalty: boolean | null;
         telegram_chat_id: number | null;
         paused_from: string | null;
+        subscription_start_date: string | null;
       } | null;
       if (!courier) continue;
 
@@ -87,12 +89,12 @@ export async function GET(req: NextRequest) {
       const wasAlreadyDebtor = courier.status === "debtor";
       const debtSince = courier.debt_since || calculateDebtSince(sub.expires_at).toISOString();
       const baseAmount = getWeeklyPrice(courier);
-      // Орендна плата порахована пропорційно дням прострочення (а не завжди
-      // фіксовано один тиждень) — rentOwed може бути більшим за baseAmount,
-      // якщо прострочено більше ніж на тиждень.
-      const rentOwed = calculateOwedRent(baseAmount, daysOverdue(sub.expires_at));
-      const penalty = calculatePenalty(daysSinceDebt(debtSince), !!courier.no_penalty);
-      const debtAmount = calculateAutoDebt(baseAmount, sub.expires_at, debtSince, !!courier.no_penalty);
+      // Борг рахується з повної історії платежів (Нараховано − Оплачено),
+      // а не лише з поточної subscriptions.expires_at.
+      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty);
+      const rentOwed = ledger.remainingDebt;
+      const penalty = ledger.penalty;
+      const debtAmount = ledger.totalOwed;
 
       await supabaseAdmin
         .from("couriers")
@@ -107,7 +109,12 @@ export async function GET(req: NextRequest) {
       if (wasAlreadyDebtor) updated++; else flagged++;
 
       if (courier.telegram_chat_id) {
-        const overdueDays = daysSinceDebt(debtSince);
+        // Днів тут — ledger.daysLate (та сама дата, з якої порахована penalty
+        // вище), а не окремий daysSinceDebt(debtSince): інакше показані
+        // "N днів × 50 грн" і сама сума пені в повідомленні можуть
+        // розійтись, якщо debt_since колись розсинхронізувався з реальною
+        // історією платежів.
+        const overdueDays = ledger.daysLate;
         const dayWord = overdueDays === 1 ? "день" : overdueDays >= 2 && overdueDays <= 4 ? "дні" : "днів";
         await sendMessageWithPayButton(
           courier.telegram_chat_id,

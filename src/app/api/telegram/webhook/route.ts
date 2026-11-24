@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
         // Отримуємо дані курʼєра
         const { data: courier } = await supabaseAdmin
           .from("couriers")
-          .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty")
+          .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty, subscription_start_date")
           .eq("id", courierId)
           .single();
 
@@ -82,7 +83,9 @@ export async function POST(req: NextRequest) {
           .single();
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-        const rentAmount = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
+        const rentAmount = late > 0
+          ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+          : getWeeklyPrice(courier);
         // Завдаток за скутер — на кожне нове взяття скутера (коли немає
         // відкритого періоду оренди), залежить від міста.
         const firstPayment = await shouldChargeDeposit(courierId);

@@ -269,3 +269,28 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
 
     return { periodDays, accrued, paid, remainingDebt, daysLate, penalty };
   }
+
+  // Єдине "офіційне" число боргу, яке тепер використовується скрізь у
+  // системі (картка кур'єра, готівкова/онлайн оплата, Telegram-бот, cron) —
+  // замінює старі totalWithPenalty/calculateAutoDebt-розрахунки, що
+  // спирались лише на поточну subscriptions.expires_at і могли
+  // розсинхронізуватись із фактичною історією платежів. remainingDebt тут —
+  // це borg за орендну плату (Нараховано − Оплачено), а totalOwed додає
+  // зверху пеню — саме ця сума має показуватись як "Борг" і саме її мають
+  // просити сплатити.
+  export type DebtLedger = RentalLedger & {
+    paidThroughDate: Date;
+    totalOwed: number;
+  };
+
+  export function calculateDebtLedger(
+    weeklyPrice: number,
+    subscriptionStartDate: string | Date | null,
+    returnDate: string | Date | null,
+    payments: RecalcPaymentInput[],
+    noPenalty = false
+  ): DebtLedger {
+    const ledger = calculateRentalLedger(weeklyPrice, subscriptionStartDate, returnDate, payments, noPenalty);
+    const { paidThroughDate } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty);
+    return { ...ledger, paidThroughDate, totalOwed: ledger.remainingDebt + ledger.penalty };
+  }

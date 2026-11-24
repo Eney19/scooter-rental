@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
 const MONOBANK_TOKEN = process.env.MONOBANK_TOKEN!;
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, rental_type, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id")
+    .select("full_name, phone, email, city, weekly_price, rental_type, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id, subscription_start_date")
     .eq("id", courierId)
     .single();
 
@@ -48,11 +49,14 @@ export async function POST(req: NextRequest) {
 
   const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
   // Якщо адмін вручну зафіксував суму боргу (debt_auto=false) — довіряємо їй.
-  // Інакше рахуємо наживо (пропорційно дням прострочення), щоб сума завжди
-  // відповідала реальному стану, а не застарілому знімку з couriers.debt_amount.
+  // Інакше, якщо прострочено — рахуємо наживо з повної історії платежів
+  // (Нараховано − Оплачено + Пеня), а не лише з поточного тижня; якщо ще
+  // не прострочено — звичайний тижневий тариф, як і раніше.
   const rentAmount = (courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number")
     ? courier.debt_amount
-    : totalWithPenalty(baseAmount, late, !!courier.no_penalty);
+    : late > 0
+      ? (await loadCourierDebtLedger(courierId, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+      : baseAmount;
 
   // Завдаток стягується на кожне нове взяття скутера (коли в кур'єра зараз
   // немає відкритого періоду оренди), а не лише раз за все життя акаунта.

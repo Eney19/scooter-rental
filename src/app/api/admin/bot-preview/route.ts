@@ -3,13 +3,11 @@ import { supabaseAdmin } from "@/lib/supabase";
 import {
   getWeeklyPrice,
   daysOverdue,
-  calculateOwedRent,
-  calculatePenalty,
-  daysSinceDebt,
   getBatteryWeeklyPrice,
   resolveDeposit,
   DEBT_PENALTY_PER_DAY,
 } from "@/lib/pricing";
+import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 import { isPaused } from "@/lib/pause";
 
@@ -26,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, rental_type, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto, paused_from, paused_until")
+      .select("city, weekly_price, rental_type, battery_types, no_penalty, status, debt_since, debt_amount, debt_auto, paused_from, paused_until, subscription_start_date")
       .eq("id", courierId)
       .single();
     if (!courier) {
@@ -65,18 +63,38 @@ export async function POST(req: NextRequest) {
       total: number;
     } | null = null;
     if (!paused && status === "debtor") {
-      const rentDays = sub ? daysOverdue(sub.expires_at) : 0;
       const useManualOverride = courier.debt_auto === false && typeof courier.debt_amount === "number";
-      const rentOwed = useManualOverride ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, rentDays);
-      const penaltyDays = courier.debt_since ? daysSinceDebt(courier.debt_since) : 0;
-      const penalty = useManualOverride ? 0 : calculatePenalty(penaltyDays, !!courier.no_penalty);
-      debt = { rentDays, rentOwed, penaltyDays, penalty, total: rentOwed + penalty };
+      if (useManualOverride) {
+        debt = {
+          rentDays: sub ? daysOverdue(sub.expires_at) : 0,
+          rentOwed: courier.debt_amount as number,
+          penaltyDays: 0,
+          penalty: 0,
+          total: courier.debt_amount as number,
+        };
+      } else {
+        const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty);
+        debt = {
+          rentDays: ledger.daysLate,
+          rentOwed: ledger.remainingDebt,
+          penaltyDays: ledger.penalty > 0 ? Math.round(ledger.penalty / DEBT_PENALTY_PER_DAY) : 0,
+          penalty: ledger.penalty,
+          total: ledger.totalOwed,
+        };
+      }
     }
 
     const late = lastActive ? daysOverdue(lastActive.expires_at) : 0;
     const useManualOverrideQuote = status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number";
-    const rentOwedQuote = useManualOverrideQuote ? (courier.debt_amount as number) : calculateOwedRent(weeklyPrice, late);
-    const penaltyQuote = useManualOverrideQuote ? 0 : calculatePenalty(late, !!courier.no_penalty);
+    let rentOwedQuote = weeklyPrice;
+    let penaltyQuote = 0;
+    if (useManualOverrideQuote) {
+      rentOwedQuote = courier.debt_amount as number;
+    } else if (late > 0) {
+      const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty);
+      rentOwedQuote = ledger.remainingDebt;
+      penaltyQuote = ledger.penalty;
+    }
     const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = resolveDeposit(courier, firstPayment);
 

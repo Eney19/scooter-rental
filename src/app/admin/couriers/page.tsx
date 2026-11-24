@@ -296,7 +296,12 @@ export default function AdminCouriersPage() {
   // без окремої кнопки.
   useEffect(() => {
     function recomputeDebt() {
-      if (!selected || courierPaymentsLoading) {
+      // Рахуємо і показуємо борг лише для боржників (і для вже повернутих
+      // курʼєрів — підбити фінальний розрахунок), щоб картка не показувала
+      // суму, якої немає в телеграм-боті (бот теж показує борг лише
+      // боржникам: status === "debtor").
+      const relevant = selected && (selected.status === "debtor" || selected.status === "inactive");
+      if (!relevant || !selected || courierPaymentsLoading) {
         setRecalcResult(null);
         return;
       }
@@ -2145,7 +2150,9 @@ export default function AdminCouriersPage() {
                     )}
                   </div>
                   <div className="pt-1">
-                    {!recalcResult ? (
+                    {selected.status !== "debtor" && selected.status !== "inactive" ? (
+                      <p className="text-xs text-slate-400">Кур&apos;єр не боржник — як і в боті, борг тут не показується.</p>
+                    ) : !recalcResult ? (
                       <p className="text-xs text-slate-300">Рахуємо борг з історії платежів...</p>
                     ) : (
                       <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs space-y-0.5">

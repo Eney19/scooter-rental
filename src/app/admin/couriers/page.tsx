@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, calculateDebtSince, daysOverdue, recalculateDebtFromHistory, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, calculateAutoDebt, calculateDebtSince, recalculateDebtFromHistory, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -289,6 +289,25 @@ export default function AdminCouriersPage() {
     }
     init();
   }, []);
+
+  // Перераховує борг з повної історії платежів щоразу, як відкрили картку
+  // кур'єра (і коли його платежі довантажились) — так блок завжди актуальний,
+  // без окремої кнопки.
+  useEffect(() => {
+    function recomputeDebt() {
+      if (!selected || courierPaymentsLoading) {
+        setRecalcResult(null);
+        return;
+      }
+      setRecalcResult(recalculateDebtFromHistory(
+        getWeeklyPrice(selected),
+        selected.subscription_start_date,
+        courierPayments,
+        !!selected.no_penalty
+      ));
+    }
+    recomputeDebt();
+  }, [selected, courierPayments, courierPaymentsLoading]);
 
   async function loadCouriers() {
     setLoading(true);
@@ -824,21 +843,6 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, debt_amount: num, debt_auto: false } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_amount: num, debt_auto: false } : null);
-  }
-
-  // Рахує лише наживо (нічого не пише в базу) — проходить ВСІ платежі
-  // кур'єра від дати старту підписки, щоб побачити справжню дату "оплачено
-  // по" і борг на сьогодні, незалежно від того, що зараз лежить у
-  // subscriptions.expires_at/couriers.debt_amount.
-  function recalcDebtFromHistory() {
-    if (!selected) return;
-    const result = recalculateDebtFromHistory(
-      getWeeklyPrice(selected),
-      selected.subscription_start_date,
-      courierPayments,
-      !!selected.no_penalty
-    );
-    setRecalcResult(result);
   }
 
   // Записує відновлений результат у couriers (тільки коли адмін явно
@@ -2160,14 +2164,10 @@ export default function AdminCouriersPage() {
                     )}
                   </div>
                   <div className="pt-1">
-                    <button
-                      onClick={recalcDebtFromHistory}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      🔄 Перерахувати борг з історії платежів
-                    </button>
-                    {recalcResult && (
-                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs space-y-0.5 mt-1">
+                    {!recalcResult ? (
+                      <p className="text-xs text-slate-300">Рахуємо борг з історії платежів...</p>
+                    ) : (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs space-y-0.5">
                         <p className="flex justify-between text-slate-600">
                           <span>Реально оплачено по</span><span>{recalcResult.paidThroughDate.toLocaleDateString("uk-UA")}</span>
                         </p>
@@ -2202,42 +2202,6 @@ export default function AdminCouriersPage() {
                       </div>
                     )}
                   </div>
-                  {selected.debt_since && (() => {
-                    const weeklyPrice = getWeeklyPrice(selected);
-                    // Той самий принцип, що й у liveDebtAmount: рахуємо від
-                    // debt_since, а не від subscriptions.expires_at, щоб
-                    // "борг за підписку" і "пеня" нижче завжди рахувались по
-                    // ОДНІЙ і тій самій даті, а не розходились, коли ці два
-                    // поля в базі розсинхронізувались.
-                    const expiresAt = new Date(selected.debt_since as string);
-                    expiresAt.setDate(expiresAt.getDate() - DEBT_GRACE_DAYS);
-                    const rentDays = daysOverdue(expiresAt);
-                    const baseAmount = calculateOwedRent(weeklyPrice, rentDays);
-                    const days = daysSinceDebt(selected.debt_since);
-                    const penalty = selected.no_penalty ? 0 : days * DEBT_PENALTY_PER_DAY;
-                    const computedTotal = baseAmount + penalty;
-                    return (
-                      <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-xs space-y-0.5">
-                        <p className="flex justify-between text-slate-600">
-                          <span>{rentDays > 0 ? `Борг за підписку (${rentDays} ${daysWord(rentDays)} прострочення)` : "Борг за підписку"}</span><span>{baseAmount} грн</span>
-                        </p>
-                        <p className="flex justify-between text-slate-600">
-                          <span>{selected.no_penalty ? "Пеня вимкнена" : `Пеня (${days} ${daysWord(days)} × ${DEBT_PENALTY_PER_DAY} грн)`}</span><span>{penalty} грн</span>
-                        </p>
-                        <p className="flex justify-between font-medium text-red-700 border-t border-red-100 pt-0.5">
-                          <span>Разом зараз</span><span>{computedTotal} грн</span>
-                        </p>
-                        {selected.debt_amount !== computedTotal && (
-                          <button
-                            onClick={() => saveDebtAmount(selected.id, String(computedTotal))}
-                            className="w-full mt-1 text-[11px] text-red-600 hover:text-red-800 underline"
-                          >
-                            Оновити суму боргу до {computedTotal} грн
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()}
                   <div className="flex gap-2 items-center">
                     <span className="text-slate-400 w-24 shrink-0 text-xs">Сума боргу</span>
                     <input

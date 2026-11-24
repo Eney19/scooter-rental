@@ -148,3 +148,67 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     if (noPenalty) return rent;
     return rent + daysSinceDebt(debtSince) * DEBT_PENALTY_PER_DAY;
   }
+
+  // Відновлює РЕАЛЬНУ заборгованість кур'єра виключно з історії платежів —
+  // ігноруючи couriers.debt_amount/subscriptions.expires_at (які могли бути
+  // неправильно обнулені частковою оплатою, яку минулий баг у
+  // /api/admin/cash-payment сприймав як повну — див. випадок Бойка Тимофія
+  // Анатолійовича, 24.11.2026). Логіка: починаючи з дати старту підписки,
+  // проходимо всі успішні платежі в хронологічному порядку і для кожного
+  // рахуємо, на скільки ДНІВ оренди скутера він реально вистачив (сума за
+  // вирахуванням завдатку й акумулятора, поділена на денну ставку тарифу) —
+  // підсумкова дата й буде справжнім "оплачено по", а не тим, що показує
+  // ланцюжок +7 днів чи (раніше) безумовне "оплата закрила все".
+  // ПРИМІТКА: акумулятор (battery_amount) з розрахунку виключається (це
+  // окреме зобов'язання) — рахується лише борг за сам скутер; тариф береться
+  // поточний (getWeeklyPrice), а не історичний на момент кожного платежу.
+  export type RecalcPaymentInput = {
+    amount: number;
+    deposit: number | null;
+    battery_amount: number | null;
+    status: string | null;
+    created_at: string;
+  };
+
+  export type RecalculatedDebt = {
+    paidThroughDate: Date;
+    daysLate: number;
+    rentOwed: number;
+    penalty: number;
+    totalDebt: number;
+  };
+
+  export function recalculateDebtFromHistory(
+    weeklyPrice: number,
+    subscriptionStartDate: string | Date | null,
+    payments: RecalcPaymentInput[],
+    noPenalty = false
+  ): RecalculatedDebt {
+    const dayRate = weeklyPrice / 7;
+    const successPayments = payments
+      .filter(p => p.status !== "failed")
+      .slice()
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    let paidThrough = subscriptionStartDate
+      ? new Date(subscriptionStartDate)
+      : (successPayments[0] ? new Date(successPayments[0].created_at) : new Date());
+
+    for (const p of successPayments) {
+      const scooterAmount = p.amount - (p.deposit || 0) - (p.battery_amount || 0);
+      if (scooterAmount <= 0 || dayRate <= 0) continue;
+      const daysCovered = Math.floor(scooterAmount / dayRate);
+      const next = new Date(paidThrough);
+      next.setDate(next.getDate() + daysCovered);
+      paidThrough = next;
+    }
+
+    const daysLate = daysOverdue(paidThrough);
+    if (daysLate <= 0) {
+      return { paidThroughDate: paidThrough, daysLate: 0, rentOwed: 0, penalty: 0, totalDebt: 0 };
+    }
+    const rentOwed = calculateOwedRent(weeklyPrice, daysLate);
+    const debtSince = calculateDebtSince(paidThrough);
+    const penalty = calculatePenalty(daysSinceDebt(debtSince), noPenalty);
+    return { paidThroughDate: paidThrough, daysLate, rentOwed, penalty, totalDebt: rentOwed + penalty };
+  }

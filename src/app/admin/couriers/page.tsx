@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, daysOverdue, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, daysSinceDebt, calculateAutoDebt, calculateOwedRent, calculateDebtSince, daysOverdue, recalculateDebtFromHistory, type RecalculatedDebt, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, DEBT_GRACE_DAYS } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -231,6 +231,11 @@ export default function AdminCouriersPage() {
   // гортання нативного календаря стрілочками/коліщатком не перезаписувало
   // збережену дату) — зберігаються лише по явному кліку на "OK".
   const [pendingDates, setPendingDates] = useState<Record<string, string>>({});
+  // Борг, відновлений з повної історії платежів (а не з couriers.debt_amount
+  // чи subscriptions.expires_at, які могли бути неправильно обнулені
+  // частковою оплатою) — показуємо лише за запитом, нічого не змінюємо, поки
+  // адмін явно не натисне "Застосувати".
+  const [recalcResult, setRecalcResult] = useState<RecalculatedDebt | null>(null);
   const [botPreview, setBotPreview] = useState<{
     status: string;
     paused?: boolean;
@@ -477,6 +482,7 @@ export default function AdminCouriersPage() {
     setPauseFromDate("");
     setPauseToDate("");
     setPendingDates({});
+    setRecalcResult(null);
     if (c) {
       loadDocFiles(c.id);
       loadCourierPayments(c.id);
@@ -819,6 +825,51 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, debt_amount: num, debt_auto: false } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, debt_amount: num, debt_auto: false } : null);
+  }
+
+  // Рахує лише наживо (нічого не пише в базу) — проходить ВСІ платежі
+  // кур'єра від дати старту підписки, щоб побачити справжню дату "оплачено
+  // по" і борг на сьогодні, незалежно від того, що зараз лежить у
+  // subscriptions.expires_at/couriers.debt_amount.
+  function recalcDebtFromHistory() {
+    if (!selected) return;
+    const result = recalculateDebtFromHistory(
+      getWeeklyPrice(selected),
+      selected.subscription_start_date,
+      courierPayments,
+      !!selected.no_penalty
+    );
+    setRecalcResult(result);
+  }
+
+  // Записує відновлений результат у couriers (тільки коли адмін явно
+  // натиснув "Застосувати" після перегляду цифр) — debt_auto: true для
+  // боржника, щоб далі цей borg продовжував рахуватись наживо (тим самим
+  // calculateAutoDebt), з правильним debt_since, а не застиглим числом.
+  async function applyRecalculatedDebt() {
+    if (!selected || !recalcResult) return;
+    const isDebtor = recalcResult.daysLate > 0;
+    const patch: Record<string, unknown> = isDebtor
+      ? {
+          status: "debtor",
+          debt_since: calculateDebtSince(recalcResult.paidThroughDate).toISOString(),
+          debt_amount: recalcResult.totalDebt,
+          debt_auto: true,
+        }
+      : {
+          status: "active",
+          debt_since: null,
+          debt_amount: null,
+          debt_auto: false,
+        };
+    const { error } = await supabase.from("couriers").update(patch).eq("id", selected.id);
+    if (error) {
+      alert(`Не вдалося застосувати перерахований борг: ${error.message}`);
+      return;
+    }
+    setCouriers(prev => prev.map(c => c.id === selected.id ? ({ ...c, ...patch } as Courier) : c));
+    setSelected(prev => prev ? ({ ...prev, ...patch } as Courier) : null);
+    setRecalcResult(null);
   }
 
   function handleFieldChange(field: keyof Courier, value: string) {
@@ -2107,6 +2158,49 @@ export default function AdminCouriersPage() {
                     />
                     {pendingDates[`debt-since:${selected.id}`] !== undefined && pendingDates[`debt-since:${selected.id}`] !== (selected.debt_since ? selected.debt_since.slice(0, 10) : "") && (
                       <button onClick={() => { updateDebtSince(selected.id, pendingDates[`debt-since:${selected.id}`]); clearDateDraft(`debt-since:${selected.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
+                    )}
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      onClick={recalcDebtFromHistory}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      🔄 Перерахувати борг з історії платежів
+                    </button>
+                    {recalcResult && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs space-y-0.5 mt-1">
+                        <p className="flex justify-between text-slate-600">
+                          <span>Реально оплачено по</span><span>{recalcResult.paidThroughDate.toLocaleDateString("uk-UA")}</span>
+                        </p>
+                        {recalcResult.daysLate > 0 ? (
+                          <>
+                            <p className="flex justify-between text-slate-600">
+                              <span>Борг за підписку ({recalcResult.daysLate} {daysWord(recalcResult.daysLate)} прострочення)</span><span>{recalcResult.rentOwed} грн</span>
+                            </p>
+                            <p className="flex justify-between text-slate-600">
+                              <span>{selected.no_penalty ? "Пеня вимкнена" : "Пеня"}</span><span>{recalcResult.penalty} грн</span>
+                            </p>
+                            <p className="flex justify-between font-medium text-blue-700 border-t border-blue-100 pt-0.5">
+                              <span>Разом насправді</span><span>{recalcResult.totalDebt} грн</span>
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-emerald-600 font-medium">За історією платежів кур&apos;єр не винен — оплачено наперед.</p>
+                        )}
+                        <p className="text-slate-400">
+                          Рахується від дати старту підписки по всій історії платежів (акумулятор у розрахунок не входить); поточне &quot;Борг&quot; на картці — {selected.debt_amount ?? 0} грн.
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Застосувати перераховане: ${recalcResult.daysLate > 0 ? `борг ${recalcResult.totalDebt} грн, боржник з ${calculateDebtSince(recalcResult.paidThroughDate).toLocaleDateString("uk-UA")}` : "без боргу"}? Це перезапише поточні Статус/Боржник з/Сума боргу.`)) {
+                              applyRecalculatedDebt();
+                            }
+                          }}
+                          className="w-full mt-1 text-[11px] text-blue-600 hover:text-blue-800 underline"
+                        >
+                          Застосувати
+                        </button>
+                      </div>
                     )}
                   </div>
                   {selected.debt_since && (() => {

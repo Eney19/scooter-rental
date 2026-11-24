@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, totalWithPenalty, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince, calculateAutoDebt } from "@/lib/pricing";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty")
+      .select("full_name, phone, city, weekly_price, rental_type, scooter_model, battery_types, contract_signed_at, no_penalty, debt_since, debt_auto")
       .eq("id", courierId)
       .single();
 
@@ -44,6 +44,16 @@ export async function POST(req: NextRequest) {
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
     const scooterAmount = rentAmount - batteryAmount;
     const amount = rentAmount + deposit;
+    // Чи покриває фактично прийнята сума ВЕСЬ нарахований прострочений борг
+    // (а не лише стільки, скільки кур'єр зараз зміг заплатити). Раніше будь-
+    // який готівковий платіж, навіть менший за реально нараховане, одразу
+    // посував підписку на весь прострочений період і обнуляв борг — ніби
+    // оплачено повністю (саме так 2800 грн за 36 днів прострочення стерли
+    // борг у ~16 150 грн). totalWithPenalty тут рахуємо завжди за фактичним
+    // "late", а не rentOverride — щоб порівняння не залежало від того, що
+    // адмін підставив у форму.
+    const fullRentOwed = totalWithPenalty(getWeeklyPrice(courier), late, !!courier.no_penalty);
+    const isPartialRentPayment = scooterAmount < fullRentOwed;
     // Дата, яку адмін вказав як фактичну дату готівкової оплати (може бути
     // заднім числом); якщо не передано — поточний момент.
     const paidAtDate = paidAt ? new Date(paidAt) : new Date();
@@ -88,8 +98,21 @@ export async function POST(req: NextRequest) {
 
     // Той самий принцип, що і для monopay-вебхука: продовжуємо від поточного
     // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від
-    // вказаної дати оплати (paidAtDate, а не обов'язково "зараз").
-    const expiresAt = nextExpiryFrom(existingSub?.expires_at, paidAtDate);
+    // вказаної дати оплати (paidAtDate, а не обов'язково "зараз"). Але якщо
+    // це часткова оплата (isPartialRentPayment) — посуваємо підписку лише на
+    // стільки днів, скільки реально оплачено (за денною ставкою тарифу), а не
+    // на весь прострочений період: інакше кур'єр виглядає "в нулі", хоча
+    // заплатив лише частину.
+    let expiresAt: Date;
+    if (isPartialRentPayment) {
+      const dayRate = getWeeklyPrice(courier) / 7;
+      const daysCovered = dayRate > 0 ? Math.max(0, Math.floor(scooterAmount / dayRate)) : 0;
+      const baseExpiry = existingSub?.expires_at ? new Date(existingSub.expires_at) : paidAtDate;
+      expiresAt = new Date(baseExpiry);
+      expiresAt.setDate(expiresAt.getDate() + daysCovered);
+    } else {
+      expiresAt = nextExpiryFrom(existingSub?.expires_at, paidAtDate);
+    }
 
     let subscriptionError = null;
     if (existingSub) {
@@ -119,13 +142,46 @@ export async function POST(req: NextRequest) {
     // Фіксуємо дату старту підписки лише при фактичному новому взятті скутера
     // (не при оплаті наперед активної підписки) — визначає день тижня для
     // щотижневого нагадування "хто платить сьогодні".
-    const { ok: activated, error: activateError } = await activateCourier(courierId, {
-      registration_step: 3,
-      debt_since: null,
-      debt_amount: null,
-      debt_auto: false,
-      ...(!existingSub ? { subscription_start_date: now } : {}),
-    });
+    let activated: boolean;
+    let activateError: string | null;
+    let remainingDebtAmount = 0;
+    const stillOverdueAfterPayment = isPartialRentPayment && daysOverdue(expiresAt) > 0;
+
+    if (stillOverdueAfterPayment) {
+      // Часткова оплата, що не закриває весь борг: кур'єр лишається
+      // "Боржником" — не викликаємо activateCourier (він завжди ставить
+      // status:"active"), а рахуємо залишок боргу так само, як щоденний
+      // debtor-check cron: debt_since зберігаємо, якщо вже був зафіксований
+      // (щоб пеня рахувалась від справжнього початку боргу, а не щоразу
+      // обнулялась новим частковим платежем), інакше фіксуємо щойно.
+      const debtSince = (courier.debt_since && courier.debt_auto !== false)
+        ? courier.debt_since
+        : calculateDebtSince(expiresAt).toISOString();
+      remainingDebtAmount = calculateAutoDebt(getWeeklyPrice(courier), expiresAt, debtSince, !!courier.no_penalty);
+
+      const { data: debtRows, error: debtError } = await supabaseAdmin
+        .from("couriers")
+        .update({
+          status: "debtor",
+          registration_step: 3,
+          debt_since: debtSince,
+          debt_amount: remainingDebtAmount,
+          debt_auto: true,
+          ...(!existingSub ? { subscription_start_date: now } : {}),
+        })
+        .eq("id", courierId)
+        .select("id");
+      activated = !debtError && !!debtRows && debtRows.length > 0;
+      activateError = debtError ? debtError.message : (!activated ? "0 rows updated" : null);
+    } else {
+      ({ ok: activated, error: activateError } = await activateCourier(courierId, {
+        registration_step: 3,
+        debt_since: null,
+        debt_amount: null,
+        debt_auto: false,
+        ...(!existingSub ? { subscription_start_date: now } : {}),
+      }));
+    }
 
     if (!activated || subscriptionError) {
       const adminChatIds = getAdminChatIds();
@@ -183,19 +239,24 @@ export async function POST(req: NextRequest) {
       const nextDate = expiresAt.toLocaleDateString("uk-UA");
       if (BOT_TOKEN) {
         try {
+          const paidLine = paymentBreakdown
+            ? `Ваш готівковий платіж прийнято: ${paymentBreakdown} = <b>${amount} грн</b>.\n\n`
+            : `Ваш готівковий платіж <b>${amount} грн</b> прийнято.\n\n`;
+          // Часткова оплата, що не закрила весь прострочений період — чесно
+          // кажемо курʼєру, скільки ще лишилось, а не "підписка активна",
+          // коли дата, на яку вона посунулась, усе ще в минулому.
+          const statusText = stillOverdueAfterPayment
+            ? `Це часткова оплата — вона не покриває весь борг.\n` +
+              `Залишок заборгованості: <b>${remainingDebtAmount} грн</b>. Погасіть якнайшвидше, щоб уникнути подальшої пені.`
+            : `Підписка активна до <b>${nextDate}</b>.\n\n` +
+              `Дякуємо! 🛵`;
           await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: courierFull.telegram_chat_id,
               parse_mode: "HTML",
-              text:
-                `✅ <b>Оплату підтверджено!</b>\n\n` +
-                (paymentBreakdown
-                  ? `Ваш готівковий платіж прийнято: ${paymentBreakdown} = <b>${amount} грн</b>.\n\n`
-                  : `Ваш готівковий платіж <b>${amount} грн</b> прийнято.\n\n`) +
-                `Підписка активна до <b>${nextDate}</b>.\n\n` +
-                `Дякуємо! 🛵`,
+              text: `✅ <b>Оплату отримано!</b>\n\n` + paidLine + statusText,
             }),
           });
         } catch (e) {

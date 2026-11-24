@@ -773,21 +773,6 @@ export default function AdminCouriersPage() {
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, subscription_start_date: value } : null);
   }
 
-  async function updateSubscriptionDate(courierId: string, subId: string, field: "paid_at" | "expires_at", date: string) {
-    const value = date || null;
-    const { error } = await supabase.from("subscriptions").update({ [field]: value }).eq("id", subId);
-    if (error) {
-      console.error(`updateSubscriptionDate(${field}) failed`, error);
-      alert(`Не вдалося зберегти дату: ${error.message}`);
-      return;
-    }
-    setSubsByCourier(prev => {
-      const current = prev[courierId];
-      if (!current) return prev;
-      return { ...prev, [courierId]: { ...current, [field]: value as string } };
-    });
-  }
-
   async function updateReturnSignedAt(id: string, date: string) {
     const value = date ? new Date(date).toISOString() : null;
     const { error } = await supabase.from("couriers").update({ return_signed_at: value }).eq("id", id);
@@ -1989,30 +1974,6 @@ export default function AdminCouriersPage() {
                   const dateStr = new Date(sub.expires_at).toLocaleDateString("uk-UA");
                   return (
                     <div className="text-sm space-y-2">
-                      <div className="flex gap-2 items-center">
-                        <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата з</span>
-                        <input
-                          type="date"
-                          value={dateDraftValue(`sub-paid:${sub.id}`, sub.paid_at ? sub.paid_at.slice(0, 10) : "")}
-                          onChange={e => setDateDraft(`sub-paid:${sub.id}`, e.target.value)}
-                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                        />
-                        {pendingDates[`sub-paid:${sub.id}`] !== undefined && pendingDates[`sub-paid:${sub.id}`] !== (sub.paid_at ? sub.paid_at.slice(0, 10) : "") && (
-                          <button onClick={() => { updateSubscriptionDate(selected.id, sub.id, "paid_at", pendingDates[`sub-paid:${sub.id}`]); clearDateDraft(`sub-paid:${sub.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
-                        )}
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        <span className="text-slate-400 w-24 shrink-0 text-xs">Оплата до</span>
-                        <input
-                          type="date"
-                          value={dateDraftValue(`sub-expires:${sub.id}`, sub.expires_at ? sub.expires_at.slice(0, 10) : "")}
-                          onChange={e => setDateDraft(`sub-expires:${sub.id}`, e.target.value)}
-                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                        />
-                        {pendingDates[`sub-expires:${sub.id}`] !== undefined && pendingDates[`sub-expires:${sub.id}`] !== (sub.expires_at ? sub.expires_at.slice(0, 10) : "") && (
-                          <button onClick={() => { updateSubscriptionDate(selected.id, sub.id, "expires_at", pendingDates[`sub-expires:${sub.id}`]); clearDateDraft(`sub-expires:${sub.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
-                        )}
-                      </div>
                       {isPaused(selected) ? null : weeks <= 0 ? (
                         <p className="text-red-600 font-medium">⚠️ Прострочено з {dateStr}</p>
                       ) : weeks >= 2 ? (

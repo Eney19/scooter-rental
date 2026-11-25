@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // не прострочено (нове взяття чи оплата наперед) — звичайний тижневий
     // тариф, як і раніше.
     const rentAmount = late > 0
-      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
       : getWeeklyPrice(courier);
     const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = resolveDeposit(courier, firstPayment);

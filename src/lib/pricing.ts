@@ -69,7 +69,7 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   const DEPOSIT_BY_CITY: Record<string, number> = {
     "Луцьк": 1400,
     "Рівне": 1400,
-    "Львів": 2100,
+    "Львів": 1200,
   };
   const DEFAULT_DEPOSIT = 1400;
 
@@ -155,13 +155,18 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // /api/admin/cash-payment сприймав як повну — див. випадок Бойка Тимофія
   // Анатолійовича, 24.11.2026). Логіка: починаючи з дати старту підписки,
   // проходимо всі успішні платежі в хронологічному порядку і для кожного
-  // рахуємо, на скільки ДНІВ оренди скутера він реально вистачив (сума за
-  // вирахуванням завдатку й акумулятора, поділена на денну ставку тарифу) —
-  // підсумкова дата й буде справжнім "оплачено по", а не тим, що показує
-  // ланцюжок +7 днів чи (раніше) безумовне "оплата закрила все".
+  // рахуємо, на скільки ДНІВ оренди скутера він реально вистачив (сума,
+  // поділена на денну ставку тарифу) — підсумкова дата й буде справжнім
+  // "оплачено по", а не тим, що показує ланцюжок +7 днів чи (раніше)
+  // безумовне "оплата закрила все".
   // ПРИМІТКА: акумулятор (battery_amount) з розрахунку виключається (це
   // окреме зобов'язання) — рахується лише борг за сам скутер; тариф береться
   // поточний (getWeeklyPrice), а не історичний на момент кожного платежу.
+  // Завдаток (depositAmount — стандартна сума для міста, getDepositAmount/
+  // resolveDeposit, а НЕ довільне поле p.deposit окремого платежу, яке
+  // часто просто не заповнене) віднімається ОДИН РАЗ, з найперших платежів
+  // курʼєра (а не з кожного) — бо стягується він одноразово на старті
+  // оренди і потім повертається, тож у рахунок орендної плати не йде.
   export type RecalcPaymentInput = {
     amount: number;
     deposit: number | null;
@@ -182,7 +187,8 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     weeklyPrice: number,
     subscriptionStartDate: string | Date | null,
     payments: RecalcPaymentInput[],
-    noPenalty = false
+    noPenalty = false,
+    depositAmount = 0
   ): RecalculatedDebt {
     const dayRate = weeklyPrice / 7;
     const successPayments = payments
@@ -194,8 +200,14 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       ? new Date(subscriptionStartDate)
       : (successPayments[0] ? new Date(successPayments[0].created_at) : new Date());
 
+    let depositLeft = depositAmount;
     for (const p of successPayments) {
-      const scooterAmount = p.amount - (p.deposit || 0) - (p.battery_amount || 0);
+      let scooterAmount = p.amount - (p.battery_amount || 0);
+      if (depositLeft > 0) {
+        const deduct = Math.min(depositLeft, Math.max(0, scooterAmount));
+        scooterAmount -= deduct;
+        depositLeft -= deduct;
+      }
       if (scooterAmount <= 0 || dayRate <= 0) continue;
       const daysCovered = Math.floor(scooterAmount / dayRate);
       const next = new Date(paidThrough);
@@ -228,6 +240,8 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   export type RentalLedger = {
     periodDays: number;
     accrued: number;
+    grossPaid: number;
+    depositDeducted: number;
     paid: number;
     remainingDebt: number;
     daysLate: number;
@@ -245,7 +259,8 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     subscriptionStartDate: string | Date | null,
     returnDate: string | Date | null,
     payments: RecalcPaymentInput[],
-    noPenalty = false
+    noPenalty = false,
+    depositAmount = 0
   ): RentalLedger {
     const dayRate = weeklyPrice / 7;
     const start = subscriptionStartDate ? startOfDay(new Date(subscriptionStartDate)) : null;
@@ -259,15 +274,23 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
 
     const accrued = Math.round(periodDays * dayRate);
 
-    const paid = payments
+    // grossPaid — усе, що курʼєр фактично вніс за скутер (без акумулятора);
+    // depositDeducted — стандартний завдаток для міста (getDepositAmount/
+    // resolveDeposit), який ми повертаємо курʼєру при здачі скутера, тож він
+    // НЕ йде в рахунок орендної плати — показуємо обидва числа окремо, щоб
+    // було видно, що саме й чому віднято.
+    const grossPaid = payments
       .filter(p => p.status !== "failed")
-      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.deposit || 0) - (p.battery_amount || 0)), 0);
+      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.battery_amount || 0)), 0);
+
+    const depositDeducted = Math.min(depositAmount, grossPaid);
+    const paid = grossPaid - depositDeducted;
 
     const remainingDebt = Math.max(0, accrued - paid);
 
-    const { daysLate, penalty } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty);
+    const { daysLate, penalty } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty, depositAmount);
 
-    return { periodDays, accrued, paid, remainingDebt, daysLate, penalty };
+    return { periodDays, accrued, grossPaid, depositDeducted, paid, remainingDebt, daysLate, penalty };
   }
 
   // Єдине "офіційне" число боргу, яке тепер використовується скрізь у
@@ -288,9 +311,10 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     subscriptionStartDate: string | Date | null,
     returnDate: string | Date | null,
     payments: RecalcPaymentInput[],
-    noPenalty = false
+    noPenalty = false,
+    depositAmount = 0
   ): DebtLedger {
-    const ledger = calculateRentalLedger(weeklyPrice, subscriptionStartDate, returnDate, payments, noPenalty);
-    const { paidThroughDate } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty);
+    const ledger = calculateRentalLedger(weeklyPrice, subscriptionStartDate, returnDate, payments, noPenalty, depositAmount);
+    const { paidThroughDate } = recalculateDebtFromHistory(weeklyPrice, subscriptionStartDate, payments, noPenalty, depositAmount);
     return { ...ledger, paidThroughDate, totalOwed: ledger.remainingDebt + ledger.penalty };
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 import { getAdminChatIds } from "@/lib/telegram";
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
 
       const baseAmount = getWeeklyPrice(courier);
       const noPenalty = !!courier.no_penalty;
-      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, noPenalty);
+      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, noPenalty, resolveDeposit(courier, true));
       const penalty = ledger.penalty;
       const total = ledger.totalOwed;
 

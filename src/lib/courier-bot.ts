@@ -261,7 +261,7 @@ async function getQuote(courier: Courier) {
   if (useManualOverride) {
     rentOwed = courier.debt_amount as number;
   } else if (late > 0) {
-    const ledger = await loadCourierDebtLedger(courier.id, baseWeekly, courier.subscription_start_date, null, !!courier.no_penalty);
+    const ledger = await loadCourierDebtLedger(courier.id, baseWeekly, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true));
     rentOwed = ledger.remainingDebt;
     penalty = ledger.penalty;
   }
@@ -326,7 +326,7 @@ async function sendStatus(chatId: number, courier: Courier) {
       penalty = 0;
       rentDays = sub ? daysOverdue(sub.expires_at) : 0;
     } else {
-      const ledger = await loadCourierDebtLedger(courier.id, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty);
+      const ledger = await loadCourierDebtLedger(courier.id, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true));
       rentOwed = ledger.remainingDebt;
       penalty = ledger.penalty;
       rentDays = ledger.daysLate;

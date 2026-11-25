@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     // а не лише з поточного тижня; якщо ще не прострочив (нове взяття або
     // оплата наперед) — як і раніше, це просто рівно один тижневий тариф.
     const fullRentOwed = late > 0
-      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
       : getWeeklyPrice(courier);
     const rentAmount = typeof rentOverride === "number" ? rentOverride : fullRentOwed;
     const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
@@ -167,7 +167,8 @@ export async function POST(req: NextRequest) {
         getWeeklyPrice(courier),
         courier.subscription_start_date ?? now,
         null,
-        !!courier.no_penalty
+        !!courier.no_penalty,
+        resolveDeposit(courier, true)
       )).totalOwed;
 
       const { data: debtRows, error: debtError } = await supabaseAdmin

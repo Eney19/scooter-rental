@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   const rentAmount = (courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number")
     ? courier.debt_amount
     : late > 0
-      ? (await loadCourierDebtLedger(courierId, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+      ? (await loadCourierDebtLedger(courierId, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
       : baseAmount;
 
   // Завдаток стягується на кожне нове взяття скутера (коли в кур'єра зараз

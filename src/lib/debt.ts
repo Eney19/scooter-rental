@@ -13,7 +13,8 @@ export async function loadCourierDebtLedger(
   weeklyPrice: number,
   subscriptionStartDate: string | Date | null,
   returnDate: string | Date | null,
-  noPenalty = false
+  noPenalty = false,
+  depositAmount = 0
 ): Promise<DebtLedger> {
   const { data } = await supabaseAdmin
     .from("payments")
@@ -21,5 +22,5 @@ export async function loadCourierDebtLedger(
     .eq("courier_id", courierId)
     .in("status", ["success", "failed"]);
   const payments = (data || []) as RecalcPaymentInput[];
-  return calculateDebtLedger(weeklyPrice, subscriptionStartDate, returnDate, payments, noPenalty);
+  return calculateDebtLedger(weeklyPrice, subscriptionStartDate, returnDate, payments, noPenalty, depositAmount);
 }

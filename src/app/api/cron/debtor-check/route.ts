@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, calculateDebtSince, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getWeeklyPrice, calculateDebtSince, DEBT_GRACE_DAYS, DEBT_PENALTY_PER_DAY, resolveDeposit } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { isPaused, resumeExpiredPauses } from "@/lib/pause";
 
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
       const baseAmount = getWeeklyPrice(courier);
       // Борг рахується з повної історії платежів (Нараховано − Оплачено),
       // а не лише з поточної subscriptions.expires_at.
-      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty);
+      const ledger = await loadCourierDebtLedger(courier.id, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true));
       const rentOwed = ledger.remainingDebt;
       const penalty = ledger.penalty;
       const debtAmount = ledger.totalOwed;

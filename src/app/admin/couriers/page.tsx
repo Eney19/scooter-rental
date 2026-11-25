@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -110,7 +110,7 @@ function liveDebtAmount(c: Courier, payments: RecalcPaymentInput[]): number | nu
   if (c.debt_auto === false) return c.debt_amount ?? null;
   // Єдина формула боргу в усій системі: Нараховано (дні оренди × денна
   // ставка, від дати старту підписки) − Оплачено (історія платежів) + Пеня.
-  return calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, payments, !!c.no_penalty).totalOwed;
+  return calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, payments, !!c.no_penalty, resolveDeposit(c, true)).totalOwed;
 }
 
 // Скільки повних тижнів наперед оплачено, рахуючи від зараз до expires_at
@@ -310,7 +310,8 @@ export default function AdminCouriersPage() {
         selected.subscription_start_date,
         selected.status === "inactive" ? selected.return_signed_at : null,
         courierPayments,
-        !!selected.no_penalty
+        !!selected.no_penalty,
+        resolveDeposit(selected, true)
       ));
     }
     recomputeDebt();
@@ -823,7 +824,7 @@ export default function AdminCouriersPage() {
     const c = couriers.find(x => x.id === id) ?? (selected?.id === id ? selected : null);
     const patch: Record<string, unknown> = { no_penalty: value };
     if (c && c.status === "debtor" && c.debt_auto && c.debt_since) {
-      patch.debt_amount = calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, paymentsForCourier(id), value).totalOwed;
+      patch.debt_amount = calculateDebtLedger(getWeeklyPrice(c), c.subscription_start_date, null, paymentsForCourier(id), value, resolveDeposit(c, true)).totalOwed;
     }
     const { error } = await supabase.from("couriers").update(patch).eq("id", id);
     if (error) {
@@ -2163,7 +2164,15 @@ export default function AdminCouriersPage() {
                           <span>Нараховано</span><span>{recalcResult.accrued} грн</span>
                         </p>
                         <p className="flex justify-between text-slate-600">
-                          <span>Оплачено</span><span>{recalcResult.paid} грн</span>
+                          <span>Оплачено (всього)</span><span>{recalcResult.grossPaid} грн</span>
+                        </p>
+                        {recalcResult.depositDeducted > 0 && (
+                          <p className="flex justify-between text-slate-400">
+                            <span>− Завдаток (повертається)</span><span>−{recalcResult.depositDeducted} грн</span>
+                          </p>
+                        )}
+                        <p className="flex justify-between text-slate-600">
+                          <span>Оплачено за оренду</span><span>{recalcResult.paid} грн</span>
                         </p>
                         <p className="flex justify-between font-medium text-slate-700">
                           <span>Залишок боргу</span><span>{recalcResult.remainingDebt} грн</span>

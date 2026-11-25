@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
         const rentAmount = late > 0
-          ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty)).totalOwed
+          ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
           : getWeeklyPrice(courier);
         // Завдаток за скутер — на кожне нове взяття скутера (коли немає
         // відкритого періоду оренди), залежить від міста.

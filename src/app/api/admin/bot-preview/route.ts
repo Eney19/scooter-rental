@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
           total: courier.debt_amount as number,
         };
       } else {
-        const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty);
+        const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true));
         debt = {
           rentDays: ledger.daysLate,
           rentOwed: ledger.remainingDebt,
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     if (useManualOverrideQuote) {
       rentOwedQuote = courier.debt_amount as number;
     } else if (late > 0) {
-      const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty);
+      const ledger = await loadCourierDebtLedger(courierId, weeklyPrice, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true));
       rentOwedQuote = ledger.remainingDebt;
       penaltyQuote = ledger.penalty;
     }

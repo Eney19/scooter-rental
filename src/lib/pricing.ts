@@ -156,16 +156,12 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // Анатолійовича, 24.11.2026). Логіка: починаючи з дати старту підписки,
   // проходимо всі успішні платежі в хронологічному порядку і для кожного
   // рахуємо, на скільки ДНІВ оренди скутера він реально вистачив (сума за
-  // вирахуванням акумулятора, поділена на денну ставку тарифу) — підсумкова
-  // дата й буде справжнім "оплачено по", а не тим, що показує ланцюжок +7
-  // днів чи (раніше) безумовне "оплата закрила все".
+  // вирахуванням завдатку й акумулятора, поділена на денну ставку тарифу) —
+  // підсумкова дата й буде справжнім "оплачено по", а не тим, що показує
+  // ланцюжок +7 днів чи (раніше) безумовне "оплата закрила все".
   // ПРИМІТКА: акумулятор (battery_amount) з розрахунку виключається (це
   // окреме зобов'язання) — рахується лише борг за сам скутер; тариф береться
   // поточний (getWeeklyPrice), а не історичний на момент кожного платежу.
-  // Завдаток (p.deposit) НЕ віднімається з суми платежу: це лише довідкова
-  // сума (показується окремо на картці), адмін не веде її окремим обліком —
-  // уся сума платежу йде в рахунок оренди, саме так рахує Дарʼя вручну
-  // (72 дні × 400 − 6 × 2800 = 12 000, без вирахування завдатку).
   export type RecalcPaymentInput = {
     amount: number;
     deposit: number | null;
@@ -199,7 +195,7 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       : (successPayments[0] ? new Date(successPayments[0].created_at) : new Date());
 
     for (const p of successPayments) {
-      const scooterAmount = p.amount - (p.battery_amount || 0);
+      const scooterAmount = p.amount - (p.deposit || 0) - (p.battery_amount || 0);
       if (scooterAmount <= 0 || dayRate <= 0) continue;
       const daysCovered = Math.floor(scooterAmount / dayRate);
       const next = new Date(paidThrough);
@@ -265,7 +261,7 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
 
     const paid = payments
       .filter(p => p.status !== "failed")
-      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.battery_amount || 0)), 0);
+      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.deposit || 0) - (p.battery_amount || 0)), 0);
 
     const remainingDebt = Math.max(0, accrued - paid);
 

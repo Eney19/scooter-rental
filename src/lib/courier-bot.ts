@@ -62,6 +62,7 @@ type Courier = {
   paused_from: string | null;
   paused_until: string | null;
   subscription_start_date: string | null;
+  deposit_amount: number | null;
 };
 
 type Draft = { city: string; base: number; model: string; batteries: string[] };
@@ -77,7 +78,7 @@ type CallbackQuery = {
 const COURIER_COLUMNS =
   "id, full_name, phone, city, status, weekly_price, rental_type, scooter_model, battery_types, " +
   "contract_pdf_url, contract_signed_at, return_pdf_url, return_signed_at, debt_since, debt_amount, debt_auto, no_penalty, " +
-  "paused_from, paused_until, subscription_start_date";
+  "paused_from, paused_until, subscription_start_date, deposit_amount";
 
 // ───────────────────────── Telegram helpers ─────────────────────────
 

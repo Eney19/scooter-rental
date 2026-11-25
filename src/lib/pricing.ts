@@ -78,16 +78,25 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     return DEPOSIT_BY_CITY[city.trim()] ?? DEFAULT_DEPOSIT;
   }
 
-  // Єдине місце, де вирішується, чи стягувати завдаток із цього платежу:
-  // курʼєри, які орендують ЛИШЕ акумулятор (rental_type === "battery_only"),
-  // завдаток не платять ніколи (нема скутера, який він мав би забезпечувати) —
-  // незалежно від того, чи це в них перше взяття. Усі місця, що рахують
-  // суму до оплати, мають викликати саме цю функцію, а не
-  // `chargeDeposit ? getDepositAmount(city) : 0` напряму, інакше при появі
-  // нового типу оренди завдаток знову почне стягуватись десь по закутках.
-  export function resolveDeposit(courier: { city?: string | null; rental_type?: string | null }, chargeDeposit: boolean): number {
+  // Єдине місце, де вирішується, чи стягувати завдаток із цього платежу і
+  // яка саме сума: курʼєри, які орендують ЛИШЕ акумулятор
+  // (rental_type === "battery_only"), завдаток не платять ніколи (нема
+  // скутера, який він мав би забезпечувати) — незалежно від того, чи це в
+  // них перше взяття. Для решти курʼєрів адмін може задати курʼєру
+  // персональний завдаток (couriers.deposit_amount) замість стандартного
+  // по місту — наприклад, якщо йому фактично внесли іншу суму; якщо поле
+  // не задане (null), використовується стандартний getDepositAmount(city).
+  // Усі місця, що рахують суму до оплати чи борг, мають викликати саме цю
+  // функцію, а не `chargeDeposit ? getDepositAmount(city) : 0` напряму,
+  // інакше при появі нового типу оренди чи персонального завдатку щось
+  // знову почне рахуватись по-старому десь по закутках.
+  export function resolveDeposit(
+    courier: { city?: string | null; rental_type?: string | null; deposit_amount?: number | null },
+    chargeDeposit: boolean
+  ): number {
     if (courier.rental_type === "battery_only") return 0;
-    return chargeDeposit ? getDepositAmount(courier.city) : 0;
+    if (!chargeDeposit) return 0;
+    return typeof courier.deposit_amount === "number" ? courier.deposit_amount : getDepositAmount(courier.city);
   }
 
   // Оренда акумулятора — опційна, обирається під час реєстрації паралельно зі

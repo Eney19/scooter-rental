@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     const { data: courier } = await supabaseAdmin
       .from("couriers")
-      .select("city, weekly_price, rental_type, battery_types, no_penalty, subscription_start_date")
+      .select("city, weekly_price, rental_type, battery_types, no_penalty, subscription_start_date, deposit_amount")
       .eq("id", courierId)
       .single();
 

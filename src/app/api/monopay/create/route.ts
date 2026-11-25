@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     // Отримуємо дані курʼєра
     const { data: courier, error } = await supabaseAdmin
     .from("couriers")
-    .select("full_name, phone, email, city, weekly_price, rental_type, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id, subscription_start_date")
+    .select("full_name, phone, email, city, weekly_price, rental_type, battery_types, status, debt_amount, debt_auto, no_penalty, telegram_chat_id, subscription_start_date, deposit_amount")
     .eq("id", courierId)
     .single();
 

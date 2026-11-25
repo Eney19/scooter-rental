@@ -20,6 +20,7 @@ type Courier = {
   address: string | null;
   weekly_price: number | null;
   rental_type: string | null;
+  deposit_amount: number | null;
   scooter_model: string | null;
   created_at: string;
   subscription_start_date: string | null;
@@ -904,7 +905,7 @@ export default function AdminCouriersPage() {
     }
     setCouriers(prev => prev.map(c => c.id === id ? ({ ...c, [field]: num } as Courier) : c));
     if (selected?.id === id) setSelected(prev => prev ? ({ ...prev, [field]: num } as Courier) : null);
-    if (field === "weekly_price") loadBotPreview(id);
+    if (field === "weekly_price" || field === "deposit_amount") loadBotPreview(id);
   }
 
   // Адмін видає курʼєру акумулятор окремо від скутера (наприклад, курʼєр
@@ -1623,14 +1624,30 @@ export default function AdminCouriersPage() {
                       />
                       <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
                     </div>
-                    {/* Довідкове значення — стандартний завдаток по місту
-                        курʼєра (не поле вводу, нічого не зберігає). Показуємо,
-                        щоб було видно, що перша оплата = тариф за тиждень +
-                        цей завдаток окремо, і він свідомо не враховується як
-                        орендна плата в розрахунку боргу (calculateRentalLedger). */}
+                    {/* Завдаток: за замовчуванням стандартний по місту
+                        курʼєра (getDepositAmount), але адмін може задати
+                        персональну суму для конкретного курʼєра
+                        (couriers.deposit_amount) — саме вона (або, якщо
+                        порожньо, стандартна) враховується скрізь: у квитанції
+                        на першу оплату (resolveDeposit) і при відніманні
+                        завдатку з "Оплачено" в розрахунку боргу
+                        (calculateRentalLedger). Порожнє поле = стандартна
+                        сума, нічого персонального не зафіксовано. */}
                     <div className="flex gap-2 items-center">
                       <span className="text-slate-400 w-20 shrink-0 text-xs">Завдаток</span>
-                      <span className="text-slate-500 text-xs">{getDepositAmount(selected.city)} грн (стандартний для {selected.city || "цього"} міста)</span>
+                      <input
+                        type="number"
+                        value={selected.deposit_amount ?? ""}
+                        placeholder={`${getDepositAmount(selected.city)}`}
+                        onChange={e => handleFieldChange("deposit_amount", e.target.value)}
+                        onBlur={e => saveNumberField(selected.id, "deposit_amount", e.target.value)}
+                        className={fieldInputClass + " w-20 flex-none"}
+                      />
+                      <span className="text-slate-400 text-xs shrink-0">
+                        {selected.deposit_amount == null
+                          ? `грн (стандартний для ${selected.city || "цього"} міста)`
+                          : "грн (персональний, не стандартний)"}
+                      </span>
                     </div>
                   </>
                 )}

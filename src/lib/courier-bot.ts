@@ -517,11 +517,20 @@ async function showRentalHistory(chatId: number, messageId: number | null, couri
   for (const r of periods || []) {
     text += `\n<b>${fmtDate(r.started_at)} — ${r.ended_at ? fmtDate(r.ended_at) : "дотепер"}</b>${r.ended_at ? "" : " 🟢"}\n`;
     text += `Місто: ${esc(r.city) || "—"}\n`;
-    text += `Модель: ${esc(r.scooter_model) || "—"}\n`;
-    if (r.battery_types && r.battery_types.length > 0) {
-      text += `Акумулятор: ${r.battery_types
-        .map((id: string) => BATTERY_OPTIONS.find((b) => b.id === id)?.label || id)
-        .join(", ")}\n`;
+    const batteryLabel = r.battery_types && r.battery_types.length > 0
+      ? r.battery_types
+          .map((id: string) => BATTERY_OPTIONS.find((b) => b.id === id)?.label || id)
+          .join(", ")
+      : "";
+    // "Тільки акумулятор" — скутера в цьому періоді не було взагалі, тож
+    // замість заплутаного "Модель: —" показуємо, що саме взяли/здали.
+    if (r.scooter_model) {
+      text += `Модель: ${esc(r.scooter_model)}\n`;
+      if (batteryLabel) text += `Акумулятор: ${batteryLabel}\n`;
+    } else if (batteryLabel) {
+      text += `Акумулятор: ${batteryLabel}\n`;
+    } else {
+      text += `Модель: —\n`;
     }
     text += `Тариф: ${r.weekly_price ? `${r.weekly_price} грн/тиж` : "—"}\n`;
     text += `Договір підписано: ${fmtDate(r.contract_signed_at)}\n`;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels, batteryAmountForLedger } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
@@ -64,6 +64,9 @@ export async function POST(req: NextRequest) {
   const deposit = resolveDeposit(courier, chargeDeposit);
 
   const amountUAH = rentAmount + deposit;
+  // Курʼєр "лише акумулятор" не орендує скутер узагалі — не підписуємо
+  // йому в банківському інвойсі вигадану "оренду скутера".
+  const rentLabel = courier.rental_type === "battery_only" ? "Оренда акумулятора" : "Оренда скутера";
     const amountKopecks = amountUAH * 100; // Monobank приймає суму в копійках
 
     const reference = `powerdrive_${courierId}_${Date.now()}`;
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
       courier_id: courierId,
       amount: amountUAH,
       deposit,
-      battery_amount: batteryWeeklyPrice,
+      battery_amount: batteryAmountForLedger(courier.rental_type, batteryWeeklyPrice),
       type: "weekly_rent",
       status: "pending",
       wayforpay_id: reference, // використовуємо це поле для reference
@@ -93,8 +96,8 @@ export async function POST(req: NextRequest) {
           reference,
           destination: (
             deposit > 0
-              ? `Оренда скутера ${rentAmount} грн + завдаток ${deposit} грн — ${courier.full_name} (${courier.city || ""})`
-              : `Оренда скутера — ${courier.full_name} (${courier.city || ""})`
+              ? `${rentLabel} ${rentAmount} грн + завдаток ${deposit} грн — ${courier.full_name} (${courier.city || ""})`
+              : `${rentLabel} — ${courier.full_name} (${courier.city || ""})`
           ).trim(),
         },
         redirectUrl: `${APP_URL}/payment/success`,

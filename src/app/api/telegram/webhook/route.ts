@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, splitRentForDisplay, batteryAmountForLedger } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
@@ -91,13 +91,13 @@ export async function POST(req: NextRequest) {
         const firstPayment = await shouldChargeDeposit(courierId);
         const deposit = resolveDeposit(courier, firstPayment);
         const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-        const scooterAmount = rentAmount - batteryAmount;
+        const split = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
         const amount = rentAmount + deposit;
         const now = new Date().toISOString();
 
         const paymentParts: string[] = [];
-        if (scooterAmount > 0) paymentParts.push(`оренда скутера ${scooterAmount} грн`);
-        if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
+        if (split.scooterAmount > 0) paymentParts.push(`оренда скутера ${split.scooterAmount} грн`);
+        if (split.batteryAmount > 0) paymentParts.push(`оренда акумулятора ${split.batteryAmount} грн`);
         if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
         const paymentBreakdown = paymentParts.length > 0 ? paymentParts.join(" + ") : null;
 
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
           courier_id: courierId,
           amount,
           deposit,
-          battery_amount: batteryAmount,
+          battery_amount: batteryAmountForLedger(courier.rental_type, batteryAmount),
           type: "weekly_rent",
           status: "success",
           wayforpay_id: `cash_${Date.now()}`,

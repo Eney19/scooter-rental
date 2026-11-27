@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, splitRentForDisplay } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
@@ -44,13 +44,13 @@ export async function POST(req: NextRequest) {
     const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-    const scooterAmount = rentAmount - batteryAmount;
+    const split = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
 
     return NextResponse.json({
       success: true,
       rentAmount,
-      batteryAmount,
-      scooterAmount,
+      batteryAmount: split.batteryAmount,
+      scooterAmount: split.scooterAmount,
       deposit,
       amount: rentAmount + deposit,
       firstPayment,

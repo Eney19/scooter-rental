@@ -120,6 +120,38 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       .map(id => BATTERY_OPTIONS.find(b => b.id === id)?.label as string | undefined)
       .filter(Boolean) as string[];
   }
+
+  // Розбиває суму оренди на "скутер" і "акумулятор" для показу в
+  // квитанціях, повідомленнях адміну та Telegram-боті. Курʼєр, що орендує
+  // ЛИШЕ акумулятор (rental_type === "battery_only"), не має окремого
+  // "скутера" взагалі — уся сума належить акумулятору. Без цієї перевірки
+  // код скрізь напряму рахував `rentAmount - batteryWeeklyPrice` як
+  // "скутер", що для такого курʼєра означало вигадану ненульову суму
+  // оренди скутера, якого в нього немає (знайдено на Древалю Артему
+  // Ігоровичу, 27.11.2026: прострочений борг показував "Оренда скутера
+  // 1236 грн", хоча весь його тариф — акумулятор).
+  export function splitRentForDisplay(
+    rentalType: string | null | undefined,
+    rentAmount: number,
+    batteryWeeklyPrice: number
+  ): { scooterAmount: number; batteryAmount: number } {
+    if (rentalType === "battery_only") {
+      return { scooterAmount: 0, batteryAmount: rentAmount };
+    }
+    return { scooterAmount: rentAmount - batteryWeeklyPrice, batteryAmount: batteryWeeklyPrice };
+  }
+
+  // Сума, яку зберігаємо в payments.battery_amount — вона виключається з
+  // щоденного розрахунку боргу (calculateRentalLedger вважає її окремим
+  // зобов'язанням поверх орендної плати за скутер). Для курʼєра "лише
+  // акумулятор" це неправильно: денна ставка (getWeeklyPrice) для нього і
+  // Є ціною акумулятора, виключати з "Оплачено" нічого не треба — інакше
+  // ввесь платіж зникає з розрахунку, і борг рахується так, ніби курʼєр
+  // узагалі не платив (той самий кейс Древаля: один платіж 1000 грн з
+  // battery_amount=1000 робив "Оплачено" = 0).
+  export function batteryAmountForLedger(rentalType: string | null | undefined, batteryWeeklyPrice: number): number {
+    return rentalType === "battery_only" ? 0 : batteryWeeklyPrice;
+  }
   // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер,
   // він автоматично стає боржником з наступного дня після закінчення підписки
   // (DEBT_GRACE_DAYS = 1 — пільговий день, щоб не позначати боржником одразу

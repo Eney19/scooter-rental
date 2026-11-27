@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -1769,9 +1769,11 @@ export default function AdminCouriersPage() {
                         </p>
                       </>
                     )}
-                    <p className="flex justify-between text-slate-600 pt-0.5">
-                      <span>Оренда скутера</span><span>{botPreview.quote.scooterAmount} грн</span>
-                    </p>
+                    {botPreview.quote.scooterAmount > 0 && (
+                      <p className="flex justify-between text-slate-600 pt-0.5">
+                        <span>Оренда скутера</span><span>{botPreview.quote.scooterAmount} грн</span>
+                      </p>
+                    )}
                     {botPreview.quote.batteryAmount > 0 && (
                       <p className="flex justify-between text-slate-600">
                         <span>Акумулятор</span><span>{botPreview.quote.batteryAmount} грн</span>
@@ -2041,8 +2043,22 @@ export default function AdminCouriersPage() {
                     {(() => { const paymentPeriods = computePaymentPeriods(courierPayments); return courierPayments.map((p) => {
                       const isFailed = p.status === "failed";
                       const deposit = p.deposit || 0;
-                      const batteryAmount = p.battery_amount || 0;
-                      const scooterAmount = p.amount - deposit - batteryAmount;
+                      const isBatteryOnly = selected.rental_type === "battery_only";
+                      // Курʼєр "лише акумулятор" не має окремого "скутера" —
+                      // уся сума (за винятком завдатку) належить акумулятору,
+                      // незалежно від того, яке значення battery_amount
+                      // випадково збереглось у цьому конкретному платежі
+                      // (до бекфілу старих рядків це могло бути ненульовим).
+                      const batteryAmount = isBatteryOnly
+                        ? p.amount - deposit
+                        : batteryAmountForLedger(selected.rental_type, p.battery_amount || 0);
+                      const scooterAmount = isBatteryOnly ? 0 : p.amount - deposit - batteryAmount;
+                      // Для розбивки "оплачено на N днів" беремо саме ту
+                      // частину платежу, що рахується проти тарифу цього
+                      // курʼєра (скутер — для звичайних, акумулятор — для
+                      // "лише акумулятор"), щоб getWeeklyPrice(selected) і
+                      // ця сума були на одній базі.
+                      const rentPortion = isBatteryOnly ? batteryAmount : scooterAmount;
                       const hasBreakdown = deposit > 0 || batteryAmount > 0;
                       const period = paymentPeriods[p.id];
                       return (
@@ -2067,21 +2083,23 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
-                            {!isFailed && period && scooterAmount > 0 && (
+                            {!isFailed && period && rentPortion > 0 && (
                               <>
                                 <p className="text-slate-500 text-xs mt-0.5">
                                   Оплата з {period.start.toLocaleDateString("uk-UA")} по {period.end.toLocaleDateString("uk-UA")}
                                 </p>
                                 <p className="text-slate-600 text-sm font-medium">
-                                  {formatRentDaysBreakdown(scooterAmount, getWeeklyPrice(selected))}
+                                  {formatRentDaysBreakdown(rentPortion, getWeeklyPrice(selected))}
                                 </p>
                               </>
                             )}
                             {!isFailed && p.wayforpay_id?.startsWith("cash_") ? (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
-                                <p className="flex justify-between gap-3">
-                                  <span>Скутер</span><span>{scooterAmount} грн</span>
-                                </p>
+                                {scooterAmount > 0 && (
+                                  <p className="flex justify-between gap-3">
+                                    <span>Скутер</span><span>{scooterAmount} грн</span>
+                                  </p>
+                                )}
                                 {batteryAmount > 0 && (
                                   <p className="flex justify-between gap-3">
                                     <span>Акумулятор</span><span>{batteryAmount} грн</span>
@@ -2105,9 +2123,11 @@ export default function AdminCouriersPage() {
                             ) : (
                               !isFailed && hasBreakdown && (
                                 <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
-                                  <p className="flex justify-between gap-3">
-                                    <span>Скутер</span><span>{scooterAmount} грн</span>
-                                  </p>
+                                  {scooterAmount > 0 && (
+                                    <p className="flex justify-between gap-3">
+                                      <span>Скутер</span><span>{scooterAmount} грн</span>
+                                    </p>
+                                  )}
                                   {batteryAmount > 0 && (
                                     <p className="flex justify-between gap-3">
                                       <span>Акумулятор</span><span>{batteryAmount} грн</span>

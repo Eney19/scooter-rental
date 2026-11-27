@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, resolveDeposit, getBatteryWeeklyPrice } from "@/lib/pricing";
+import { getWeeklyPrice, resolveDeposit, getBatteryWeeklyPrice, splitRentForDisplay } from "@/lib/pricing";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
@@ -25,7 +25,7 @@ export async function requestCashPayment(courierId: string): Promise<{ ok: boole
   const firstPayment = await shouldChargeDeposit(courierId);
   const deposit = resolveDeposit(courier, firstPayment);
   const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-  const scooterAmount = rentAmount - batteryAmount;
+  const split = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
   const amount = rentAmount + deposit;
 
   const adminChatIds = getAdminChatIds();
@@ -42,10 +42,10 @@ export async function requestCashPayment(courierId: string): Promise<{ ok: boole
         text:
           "💵 <b>Кур'єр обрав оплату готівкою на місці</b>\n\n" +
           `${courier.full_name}\n${courier.phone}\n${courier.city || ""}\n` +
-          (batteryAmount > 0 || deposit > 0
+          (split.batteryAmount > 0 || deposit > 0
             ? [
-                ...(scooterAmount > 0 ? [`оренда скутера ${scooterAmount} грн`] : []),
-                ...(batteryAmount > 0 ? [`оренда акумулятора ${batteryAmount} грн`] : []),
+                ...(split.scooterAmount > 0 ? [`оренда скутера ${split.scooterAmount} грн`] : []),
+                ...(split.batteryAmount > 0 ? [`оренда акумулятора ${split.batteryAmount} грн`] : []),
                 ...(deposit > 0 ? [`завдаток за скутер ${deposit} грн`] : []),
               ].join(" + ") + ` = <b>${amount} грн</b>\n\n`
             : `${amount} грн/тиж\n\n`) +

@@ -6,6 +6,7 @@ import {
   getBatteryWeeklyPrice,
   resolveDeposit,
   DEBT_PENALTY_PER_DAY,
+  splitRentForDisplay,
 } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
@@ -97,10 +98,11 @@ export async function POST(req: NextRequest) {
     }
     const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = resolveDeposit(courier, firstPayment);
+    const quoteSplit = splitRentForDisplay(courier.rental_type, rentOwedQuote, batteryAmount);
 
     const quote = {
-      scooterAmount: rentOwedQuote - batteryAmount,
-      batteryAmount,
+      scooterAmount: quoteSplit.scooterAmount,
+      batteryAmount: quoteSplit.batteryAmount,
       penalty: penaltyQuote,
       penaltyDays: penaltyQuote > 0 ? Math.round(penaltyQuote / DEBT_PENALTY_PER_DAY) : 0,
       deposit,

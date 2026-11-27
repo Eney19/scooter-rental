@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince, splitRentForDisplay, batteryAmountForLedger } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
@@ -56,17 +56,23 @@ export async function POST(req: NextRequest) {
     const rentAmount = typeof rentOverride === "number" ? rentOverride : fullRentOwed;
     const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-    const scooterAmount = rentAmount - batteryAmount;
+    // Для "лише акумулятор" курʼєра весь rentAmount і є борг за акумулятор —
+    // нічого додатково виключати (на відміну від "скутер", де акумулятор —
+    // окреме зобов'язання поверх оренди скутера). batteryAmountForLedger
+    // повертає 0 для battery_only, тож тут нічого не змінюється математично.
+    const scooterAmount = rentAmount - batteryAmountForLedger(courier.rental_type, batteryAmount);
     const amount = rentAmount + deposit;
     const isPartialRentPayment = scooterAmount < fullRentOwed;
+    // Лише для повідомлення курʼєру/в лог — не бере участі в розрахунку дат.
+    const displaySplit = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
     // Дата, яку адмін вказав як фактичну дату готівкової оплати (може бути
     // заднім числом); якщо не передано — поточний момент.
     const paidAtDate = paidAt ? new Date(paidAt) : new Date();
     const now = paidAtDate.toISOString();
 
     const paymentParts: string[] = [];
-    if (scooterAmount > 0) paymentParts.push(`оренда скутера ${scooterAmount} грн`);
-    if (batteryAmount > 0) paymentParts.push(`оренда акумулятора ${batteryAmount} грн`);
+    if (displaySplit.scooterAmount > 0) paymentParts.push(`оренда скутера ${displaySplit.scooterAmount} грн`);
+    if (displaySplit.batteryAmount > 0) paymentParts.push(`оренда акумулятора ${displaySplit.batteryAmount} грн`);
     if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
     const paymentBreakdown = paymentParts.length > 0 ? paymentParts.join(" + ") : null;
 
@@ -74,7 +80,7 @@ export async function POST(req: NextRequest) {
       courier_id: courierId,
       amount,
       deposit,
-      battery_amount: batteryAmount,
+      battery_amount: batteryAmountForLedger(courier.rental_type, batteryAmount),
       type: "weekly_rent",
       status: "success",
       wayforpay_id: `cash_${Date.now()}`,

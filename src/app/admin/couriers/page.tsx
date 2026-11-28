@@ -1604,7 +1604,7 @@ export default function AdminCouriersPage() {
                 {selected.rental_type === "battery_only" ? (
                   <>
                     <div className="flex gap-2 items-center">
-                      <span className="text-slate-400 w-20 shrink-0">Тариф</span>
+                      <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Тариф оренди акумулятора</span>
                       <input
                         type="number"
                         value={selected.weekly_price ?? ""}

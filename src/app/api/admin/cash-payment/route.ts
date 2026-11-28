@@ -59,11 +59,9 @@ export async function POST(req: NextRequest) {
     const rentAmount = typeof rentOverride === "number" ? rentOverride : fullRentOwed;
     const deposit = typeof depositOverride === "number" ? depositOverride : resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
-    // Для "лише акумулятор" курʼєра весь rentAmount і є борг за акумулятор —
-    // нічого додатково виключати (на відміну від "скутер", де акумулятор —
-    // окреме зобов'язання поверх оренди скутера). batteryAmountForLedger
-    // повертає 0 для battery_only, тож тут нічого не змінюється математично.
-    const scooterAmount = rentAmount - batteryAmountForLedger(courier.rental_type, batteryAmount);
+    // Акумулятор входить у загальний тариф (getWeeklyPrice) — уся сума оренди
+    // рахується в оплачені дні.
+    const rentForDays = rentAmount;
     const amount = rentAmount + deposit;
     const penaltyAmount = Math.max(0, typeof penaltyOverride === "number" ? penaltyOverride : (debtLedger ? debtLedger.penalty : 0));
     const totalAmount = amount + penaltyAmount;
@@ -156,7 +154,7 @@ export async function POST(req: NextRequest) {
       // Запасний варіант (немає дати старту в старих записах): від поточного
       // expires_at або від дати оплати + оплачені дні.
       const dayRate = getWeeklyPrice(courier) / 7;
-      const daysCovered = dayRate > 0 ? Math.max(0, Math.floor(scooterAmount / dayRate)) : 0;
+      const daysCovered = dayRate > 0 ? Math.max(0, Math.floor(rentForDays / dayRate)) : 0;
       const baseExpiry = existingSub?.expires_at ? new Date(existingSub.expires_at) : paidAtDate;
       expiresAt = new Date(baseExpiry);
       expiresAt.setDate(expiresAt.getDate() + daysCovered);

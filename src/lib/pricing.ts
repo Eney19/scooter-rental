@@ -14,6 +14,13 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // не платять за скутер взагалі. Це єдине місце, де вирішується "скутер
   // чи лише акумулятор" — всі місця, що рахують оренду/борг/оплату,
   // використовують саме getWeeklyPrice і автоматично підхоплюють це.
+  //
+  // Для курʼєра зі скутером ЗАГАЛЬНИЙ тариф = тариф оренди скутера
+  // (couriers.weekly_price або стандартний для міста, getScooterWeeklyPrice)
+  // + оренда додаткового акумулятора (getBatteryWeeklyPrice, 0 якщо не брав).
+  // Саме загальний тариф нараховується, виставляється до оплати і йде в
+  // розрахунок боргу. couriers.weekly_price тепер — ЛИШЕ тариф скутера
+  // (раніше туди вручну вписували суму скутер + акумулятор).
   export function getWeeklyPrice(courier: { city?: string | null; weekly_price?: number | null; rental_type?: string | null; battery_types?: string[] | null }): number {
     if (courier.rental_type === "battery_only") {
       // weekly_price тут — ручне перевизначення тарифу адміном (напр., коли
@@ -23,9 +30,20 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
       if (courier.weekly_price && courier.weekly_price > 0) return courier.weekly_price;
       return getBatteryWeeklyPrice(courier.battery_types);
     }
+    return getScooterWeeklyPrice(courier) + getBatteryWeeklyPrice(courier.battery_types);
+  }
+
+  // Тариф оренди самого скутера (без акумулятора): ручний couriers.weekly_price
+  // або стандартний для міста. Для "лише акумулятор" — 0.
+  export function getScooterWeeklyPrice(courier: { city?: string | null; weekly_price?: number | null; rental_type?: string | null }): number {
+    if (courier.rental_type === "battery_only") return 0;
     if (courier.weekly_price && courier.weekly_price > 0) return courier.weekly_price;
-    if (!courier.city) return DEFAULT_WEEKLY_PRICE;
-    return WEEKLY_PRICE_BY_CITY[courier.city.trim()] ?? DEFAULT_WEEKLY_PRICE;
+    return getCityScooterWeeklyPrice(courier.city);
+  }
+
+  export function getCityScooterWeeklyPrice(city: string | null | undefined): number {
+    if (!city) return DEFAULT_WEEKLY_PRICE;
+    return WEEKLY_PRICE_BY_CITY[city.trim()] ?? DEFAULT_WEEKLY_PRICE;
   }
   
   // Кількість повних днів прострочення від дати закінчення підписки до зараз.
@@ -141,14 +159,6 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
     return { scooterAmount: rentAmount - batteryWeeklyPrice, batteryAmount: batteryWeeklyPrice };
   }
 
-  // Сума, яку зберігаємо в payments.battery_amount — вона виключається з
-  // щоденного розрахунку боргу (calculateRentalLedger вважає її окремим
-  // зобов'язанням поверх орендної плати за скутер). Для курʼєра "лише
-  // акумулятор" це неправильно: денна ставка (getWeeklyPrice) для нього і
-  // Є ціною акумулятора, виключати з "Оплачено" нічого не треба — інакше
-  // ввесь платіж зникає з розрахунку, і борг рахується так, ніби курʼєр
-  // узагалі не платив (той самий кейс Древаля: один платіж 1000 грн з
-  // battery_amount=1000 робив "Оплачено" = 0).
   // ---------------------------------------------------------------------------
 // "Оплачено до" з історії платежів — єдина формула для адмінки (відображення
 // "Оплата з ... по ...", перерахунок підписки) і бекенду (/api/admin/cash-payment).
@@ -175,12 +185,11 @@ export type PeriodPayment = {
   type?: string | null;
 };
 
-// Яка частина платежу йде саме на тариф (без завдатку і без акумулятора-
-// додатку). Для "лише акумулятор" увесь залишок після завдатку і є тариф.
+// Яка частина платежу йде на тариф (усе, крім завдатку).
 export function rentPortionOfPayment(p: PeriodPayment, rentalType: string | null | undefined): number {
-  const deposit = p.deposit || 0;
-  const battery = rentalType === "battery_only" ? 0 : (p.battery_amount || 0);
-  return Math.max(0, p.amount - deposit - battery);
+  // Акумулятор входить у загальний тариф, тож на тариф іде все, крім завдатку.
+  void rentalType;
+  return Math.max(0, p.amount - (p.deposit || 0));
 }
 
 export function computePaymentPeriods(
@@ -246,6 +255,10 @@ export function computePaidThrough(
   return last ? periods[last.id]?.end ?? null : null;
 }
 
+// Сума, яку зберігаємо в payments.battery_amount — лише для розбивки платежу
+// на "скутер / акумулятор" на екрані (у розрахунок боргу вона окремо не
+// йде: акумулятор входить у загальний тариф). Для "лише акумулятор" — 0,
+// бо окремого скутера немає і вся сума — оренда акумулятора.
 export function batteryAmountForLedger(rentalType: string | null | undefined, batteryWeeklyPrice: number): number {
     return rentalType === "battery_only" ? 0 : batteryWeeklyPrice;
   }
@@ -297,8 +310,8 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
   // поділена на денну ставку тарифу) — підсумкова дата й буде справжнім
   // "оплачено по", а не тим, що показує ланцюжок +7 днів чи (раніше)
   // безумовне "оплата закрила все".
-  // ПРИМІТКА: акумулятор (battery_amount) з розрахунку виключається (це
-  // окреме зобов'язання) — рахується лише борг за сам скутер; тариф береться
+  // ПРИМІТКА: акумулятор входить у загальний тариф (getWeeklyPrice = скутер
+  // + акумулятор), тож платіж зараховується повністю; тариф береться
   // поточний (getWeeklyPrice), а не історичний на момент кожного платежу.
   // Завдаток (depositAmount — стандартна сума для міста, getDepositAmount/
   // resolveDeposit, а НЕ довільне поле p.deposit окремого платежу, яке
@@ -350,7 +363,9 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
 
     let depositLeft = depositAmount;
     for (const p of successPayments) {
-      let scooterAmount = p.amount - (p.battery_amount || 0);
+      // Акумулятор входить у загальний тариф (getWeeklyPrice), тож платіж
+      // зараховується повністю (battery_amount лише для розбивки на екрані).
+      let scooterAmount = p.amount;
       if (depositLeft > 0) {
         const deduct = Math.min(depositLeft, Math.max(0, scooterAmount));
         scooterAmount -= deduct;
@@ -377,7 +392,7 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
   // за КОЖЕН день періоду оренди (від дати старту підписки до дати
   // повернення скутера, або до сьогодні, якщо він ще в оренді — обидві
   // дати включно) за денною ставкою, віднімаємо суму всіх фактично
-  // внесених оплат за скутер (без завдатку й акумулятора — ті самі
+  // внесених оплат за оренду (без завдатку — ті самі
   // виключення, що й у recalculateDebtFromHistory) і отримуємо загальний
   // залишок боргу за весь час оренди. Прострочення й пеню беремо з
   // recalculateDebtFromHistory — вони вже рахуються саме так, як описано
@@ -422,14 +437,14 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
 
     const accrued = Math.round(periodDays * dayRate);
 
-    // grossPaid — усе, що курʼєр фактично вніс за скутер (без акумулятора);
+    // grossPaid — усе, що курʼєр фактично вніс за оренду (скутер + акумулятор);
     // depositDeducted — стандартний завдаток для міста (getDepositAmount/
     // resolveDeposit), який ми повертаємо курʼєру при здачі скутера, тож він
     // НЕ йде в рахунок орендної плати — показуємо обидва числа окремо, щоб
     // було видно, що саме й чому віднято.
     const grossPaid = payments
       .filter(p => p.status !== "failed" && !isPenaltyPayment(p))
-      .reduce((sum, p) => sum + Math.max(0, p.amount - (p.battery_amount || 0)), 0);
+      .reduce((sum, p) => sum + Math.max(0, p.amount), 0);
 
     const depositDeducted = Math.min(depositAmount, grossPaid);
     const paid = grossPaid - depositDeducted;

@@ -165,14 +165,15 @@ export default function RegisterPage() {
       await uploadFile(propyskaFile, "propiska");
       await uploadFile(rnokppFile, "rnokpp");
       const finalPrice = customPrice || form.weeklyPrice;
-      const totalWeeklyPrice = parseInt(finalPrice) + getBatteryWeeklyPrice(form.batteries);
 
       await supabase.from("couriers").update({
         city: form.city,
         address: form.address.trim(),
         tax_id: form.taxId.trim(),
         passport: form.passport.trim(),
-        weekly_price: totalWeeklyPrice,
+        // weekly_price — лише тариф скутера; акумулятор додається окремо
+        // (getWeeklyPrice = скутер + battery_types). У договір іде загальна сума.
+        weekly_price: parseInt(finalPrice),
         scooter_model: form.scooterModel,
         battery_types: form.batteries,
         registration_step: 2,

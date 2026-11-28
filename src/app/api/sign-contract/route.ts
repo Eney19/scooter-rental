@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { sendEmailChecked } from "@/lib/email";
 import { getAdminChatIds } from "@/lib/telegram";
 import { normalizePhone } from "@/lib/phone";
-import { getBatteryLabels } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice } from "@/lib/pricing";
 
 // За замовчуванням на Hobby-тарифі Vercel функція обривається через 10с — цього
 // не вистачає на генерацію PDF (кілька fetch-запитів + рендеринг) і заливку в Storage.
@@ -274,7 +274,10 @@ export async function POST(req: NextRequest) {
       address,
       tax_id: taxId,
       passport_series: passport,
-      weekly_price: parseInt(price) || 2400,
+      // У договорі — загальний тариф (скутер + акумулятор), а в
+      // couriers.weekly_price зберігаємо лише тариф скутера: акумулятор
+      // додається окремо з battery_types (getWeeklyPrice).
+      weekly_price: Math.max(0, (parseInt(price) || 2400) - getBatteryWeeklyPrice(batteryList)) || 2400,
       scooter_model: scooterModel,
       battery_types: batteryList,
     }).eq("id", courierId);

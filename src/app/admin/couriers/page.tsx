@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger, computePaymentPeriods, computePaidThrough, isPenaltyPayment } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger, computePaymentPeriods, computePaidThrough, isPenaltyPayment, getScooterWeeklyPrice, getCityScooterWeeklyPrice } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -1071,7 +1071,12 @@ export default function AdminCouriersPage() {
 
     const current = couriers.find(c => c.id === courierId) ?? (selected?.id === courierId ? selected : null);
     if (current && tariffNum > 0 && tariffNum !== getWeeklyPrice(current)) {
-      await saveNumberField(courierId, "weekly_price", String(tariffNum));
+      // Поле "Тариф" тут — загальний тариф (скутер + акумулятор), а в
+      // couriers.weekly_price для скутера зберігаємо лише тариф скутера.
+      const toSave = current.rental_type === "battery_only"
+        ? tariffNum
+        : Math.max(0, tariffNum - getBatteryWeeklyPrice(current.battery_types));
+      await saveNumberField(courierId, "weekly_price", String(toSave));
     }
 
     await handleCashPayment(courierId, paidAt);
@@ -1597,33 +1602,133 @@ export default function AdminCouriersPage() {
                   </div>
                 </div>
                 {selected.rental_type === "battery_only" ? (
-                  <div className="flex gap-2 items-center">
-                    <span className="text-slate-400 w-20 shrink-0">Тариф</span>
-                    <input
-                      type="number"
-                      value={selected.weekly_price ?? ""}
-                      placeholder={`${getBatteryWeeklyPrice(selected.battery_types)}`}
-                      onChange={e => handleFieldChange("weekly_price", e.target.value)}
-                      onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
-                      className={fieldInputClass}
-                    />
-                    <span className="text-slate-400 text-xs shrink-0">
-                      {selected.weekly_price ? "грн/тиж" : `грн/тиж (= тариф акумулятора)`}
-                    </span>
-                  </div>
-                ) : (
                   <>
                     <div className="flex gap-2 items-center">
                       <span className="text-slate-400 w-20 shrink-0">Тариф</span>
                       <input
                         type="number"
                         value={selected.weekly_price ?? ""}
-                        placeholder="грн/тиж"
+                        placeholder={`${getBatteryWeeklyPrice(selected.battery_types)}`}
                         onChange={e => handleFieldChange("weekly_price", e.target.value)}
                         onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
                         className={fieldInputClass}
                       />
-                      <span className="text-slate-400 text-xs shrink-0">грн/тиж</span>
+                      <span className="text-slate-400 text-xs shrink-0">
+                        {selected.weekly_price ? "грн/тиж" : `грн/тиж (= тариф акумулятора)`}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
+                      {getBatteryLabels(selected.battery_types).length > 0 ? (
+                        <>
+                          <span className="text-slate-700 text-sm flex-1">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
+                          <button
+                            onClick={() => returnBattery(selected.id)}
+                            className="text-xs text-red-500 hover:text-red-700 shrink-0"
+                          >
+                            Здати
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <select
+                            value={issueBatteryId}
+                            onChange={e => setIssueBatteryId(e.target.value)}
+                            className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="">Без акумулятора</option>
+                            {BATTERY_OPTIONS.map(b => (
+                              <option key={b.id} value={b.id}>{b.label} ({b.weeklyPrice} грн/тиж)</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => issueBattery(selected.id)}
+                            disabled={!issueBatteryId}
+                            className="text-xs text-emerald-600 hover:text-emerald-700 shrink-0 disabled:opacity-40"
+                          >
+                            Видати
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Скутер: окремо тариф скутера (couriers.weekly_price або
+                        стандартний для міста), окремо оренда додаткового
+                        акумулятора (0, якщо не брав), і знизу загальний тариф
+                        = скутер + акумулятор — саме він нараховується й
+                        виставляється до оплати (getWeeklyPrice). */}
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Модель електроскутера</span>
+                      <input
+                        type="text"
+                        value={selected.scooter_model || ""}
+                        placeholder="Модель електроскутера"
+                        onChange={e => handleFieldChange("scooter_model", e.target.value)}
+                        onBlur={e => saveField(selected.id, "scooter_model", e.target.value)}
+                        className={fieldInputClass}
+                      />
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Тариф оренди скутера</span>
+                      <input
+                        type="number"
+                        value={selected.weekly_price ?? ""}
+                        placeholder={`${getCityScooterWeeklyPrice(selected.city)}`}
+                        onChange={e => handleFieldChange("weekly_price", e.target.value)}
+                        onBlur={e => saveNumberField(selected.id, "weekly_price", e.target.value)}
+                        className={fieldInputClass}
+                      />
+                      <span className="text-slate-400 text-xs shrink-0">
+                        {selected.weekly_price ? "грн/тиж" : "грн/тиж (стандарт міста)"}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Оренда акумулятора</span>
+                      {getBatteryLabels(selected.battery_types).length > 0 ? (
+                        <>
+                          <span className="text-slate-700 text-sm flex-1">
+                            🔋 {getBatteryLabels(selected.battery_types).join(", ")} · <b>{getBatteryWeeklyPrice(selected.battery_types)}</b> грн/тиж
+                          </span>
+                          <button
+                            onClick={() => returnBattery(selected.id)}
+                            className="text-xs text-red-500 hover:text-red-700 shrink-0"
+                          >
+                            Здати
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-slate-700 text-sm shrink-0"><b>0</b> грн/тиж</span>
+                          <select
+                            value={issueBatteryId}
+                            onChange={e => setIssueBatteryId(e.target.value)}
+                            className="flex-1 min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="">Без акумулятора</option>
+                            {BATTERY_OPTIONS.map(b => (
+                              <option key={b.id} value={b.id}>{b.label} ({b.weeklyPrice} грн/тиж)</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => issueBattery(selected.id)}
+                            disabled={!issueBatteryId}
+                            className="text-xs text-emerald-600 hover:text-emerald-700 shrink-0 disabled:opacity-40"
+                          >
+                            Видати
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex gap-2 items-center border-t border-slate-100 pt-2">
+                      <span className="text-slate-600 w-28 shrink-0 text-xs leading-tight font-medium">Загальний тариф</span>
+                      <span className="text-slate-900 text-sm font-semibold flex-1">
+                        {getWeeklyPrice(selected)} грн/тиж
+                      </span>
+                      <span className="text-slate-400 text-xs shrink-0">
+                        {getScooterWeeklyPrice(selected)} + {getBatteryWeeklyPrice(selected.battery_types)}
+                      </span>
                     </div>
                     {/* Завдаток: за замовчуванням стандартний по місту
                         курʼєра (getDepositAmount), але адмін може задати
@@ -1652,51 +1757,6 @@ export default function AdminCouriersPage() {
                     </div>
                   </>
                 )}
-                <div className="flex gap-2 items-center">
-                  <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Модель електроскутера</span>
-                  <input
-                    type="text"
-                    value={selected.scooter_model || ""}
-                    placeholder="Модель електроскутера"
-                    onChange={e => handleFieldChange("scooter_model", e.target.value)}
-                    onBlur={e => saveField(selected.id, "scooter_model", e.target.value)}
-                    className={fieldInputClass}
-                  />
-                </div>
-                <div className="flex gap-2 items-center">
-                  <span className="text-slate-400 w-28 shrink-0 text-xs leading-tight">Акумулятор</span>
-                  {getBatteryLabels(selected.battery_types).length > 0 ? (
-                    <>
-                      <span className="text-slate-700 text-sm flex-1">🔋 {getBatteryLabels(selected.battery_types).join(", ")}</span>
-                      <button
-                        onClick={() => returnBattery(selected.id)}
-                        className="text-xs text-red-500 hover:text-red-700 shrink-0"
-                      >
-                        Здати
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <select
-                        value={issueBatteryId}
-                        onChange={e => setIssueBatteryId(e.target.value)}
-                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="">Без акумулятора</option>
-                        {BATTERY_OPTIONS.map(b => (
-                          <option key={b.id} value={b.id}>{b.label} ({b.weeklyPrice} грн/тиж)</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => issueBattery(selected.id)}
-                        disabled={!issueBatteryId}
-                        className="text-xs text-emerald-600 hover:text-emerald-700 shrink-0 disabled:opacity-40"
-                      >
-                        Видати
-                      </button>
-                    </>
-                  )}
-                </div>
                 <div className="flex gap-2 items-center">
                   <span className="text-slate-400 w-20 shrink-0">РНОКПП</span>
                   <input
@@ -2061,7 +2121,8 @@ export default function AdminCouriersPage() {
                       // курʼєра (скутер — для звичайних, акумулятор — для
                       // "лише акумулятор"), щоб getWeeklyPrice(selected) і
                       // ця сума були на одній базі.
-                      const rentPortion = isPenalty ? 0 : (isBatteryOnly ? batteryAmount : scooterAmount);
+                      // Акумулятор входить у загальний тариф — на дні йде все, крім завдатку.
+                      const rentPortion = isPenalty ? 0 : Math.max(0, p.amount - deposit);
                       const hasBreakdown = !isPenalty && (deposit > 0 || batteryAmount > 0);
                       const period = paymentPeriods[p.id];
                       return (
@@ -2353,7 +2414,7 @@ export default function AdminCouriersPage() {
                   ) : (
                     <>
                       <div className="flex gap-2 items-center">
-                        <span className="text-slate-500 text-xs w-20 shrink-0">Тариф</span>
+                        <span className="text-slate-500 text-xs w-20 shrink-0">Тариф (заг.)</span>
                         <input
                           type="number"
                           value={cashTariff}

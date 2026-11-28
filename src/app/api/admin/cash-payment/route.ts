@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince, splitRentForDisplay, batteryAmountForLedger } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, calculateDebtSince, splitRentForDisplay, batteryAmountForLedger, computePaidThrough } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
-import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
+import { activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
 import { getAdminChatIds } from "@/lib/telegram";
 
@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
     // повертає 0 для battery_only, тож тут нічого не змінюється математично.
     const scooterAmount = rentAmount - batteryAmountForLedger(courier.rental_type, batteryAmount);
     const amount = rentAmount + deposit;
-    const isPartialRentPayment = scooterAmount < fullRentOwed;
     // Лише для повідомлення курʼєру/в лог — не бере участі в розрахунку дат.
     const displaySplit = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
     // Дата, яку адмін вказав як фактичну дату готівкової оплати (може бути
@@ -107,22 +106,34 @@ export async function POST(req: NextRequest) {
       .eq("status", "active")
       .maybeSingle();
 
-    // Той самий принцип, що і для monopay-вебхука: продовжуємо від поточного
-    // expires_at, якщо він ще в майбутньому (оплата наперед), інакше — від
-    // вказаної дати оплати (paidAtDate, а не обов'язково "зараз"). Але якщо
-    // це часткова оплата (isPartialRentPayment) — посуваємо підписку лише на
-    // стільки днів, скільки реально оплачено (за денною ставкою тарифу), а не
-    // на весь прострочений період: інакше кур'єр виглядає "в нулі", хоча
-    // заплатив лише частину.
-    let expiresAt: Date;
-    if (isPartialRentPayment) {
+    // "Оплачено до" рахуємо з УСІЄЇ історії успішних платежів від дати
+    // старту підписки (computePaidThrough, @/lib/pricing — та сама формула,
+    // що й в адмінці): кожен платіж додає стільки днів, скільки реально
+    // покриває його сума за денним тарифом. Раніше повна оплата завжди
+    // посувала дату рівно на тиждень незалежно від суми (наприклад, 4200 грн
+    // = 2 тижні давали лише +7 днів), а відлік не враховував вручну
+    // виставлену дату старту — ручне відтворення історії оплат давало
+    // неправильне "Оплачено до" (Галас Володимир Сергійович, 28.11.2026).
+    // Нове взяття (активної підписки ще нема) — дата старту = дата цієї
+    // оплати, як і раніше (нижче її записуємо в couriers).
+    const subscriptionStart = existingSub ? courier.subscription_start_date : now;
+    let expiresAt: Date | null = null;
+    if (subscriptionStart) {
+      const { data: historyRows } = await supabaseAdmin
+        .from("payments")
+        .select("id, amount, deposit, battery_amount, created_at, status")
+        .eq("courier_id", courierId)
+        .eq("status", "success");
+      expiresAt = computePaidThrough(historyRows || [], getWeeklyPrice(courier), courier.rental_type, subscriptionStart);
+    }
+    if (!expiresAt) {
+      // Запасний варіант (немає дати старту в старих записах): від поточного
+      // expires_at або від дати оплати + оплачені дні.
       const dayRate = getWeeklyPrice(courier) / 7;
       const daysCovered = dayRate > 0 ? Math.max(0, Math.floor(scooterAmount / dayRate)) : 0;
       const baseExpiry = existingSub?.expires_at ? new Date(existingSub.expires_at) : paidAtDate;
       expiresAt = new Date(baseExpiry);
       expiresAt.setDate(expiresAt.getDate() + daysCovered);
-    } else {
-      expiresAt = nextExpiryFrom(existingSub?.expires_at, paidAtDate);
     }
 
     let subscriptionError = null;
@@ -156,7 +167,10 @@ export async function POST(req: NextRequest) {
     let activated: boolean;
     let activateError: string | null;
     let remainingDebtAmount = 0;
-    const stillOverdueAfterPayment = isPartialRentPayment && daysOverdue(expiresAt) > 0;
+    // Лишається боржником, якщо після цієї оплати оплачений період (з усієї
+    // історії від дати старту) все одно вже скінчився — незалежно від того,
+    // чи вважалась саме ця оплата "частковою".
+    const stillOverdueAfterPayment = daysOverdue(expiresAt) > 0;
 
     if (stillOverdueAfterPayment) {
       // Часткова оплата, що не закриває весь борг: кур'єр лишається

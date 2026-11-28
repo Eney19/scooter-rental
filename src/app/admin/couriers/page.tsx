@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger, computePaymentPeriods, computePaidThrough } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -120,50 +120,6 @@ function weeksAheadPaid(expiresAt: string): number {
   const diffMs = new Date(expiresAt).getTime() - Date.now();
   if (diffMs <= 0) return 0;
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
-}
-
-// Відтворює той самий ланцюжок продовження підписки, що й бекенд
-// (nextExpiryFrom, subscription.ts), по кожному окремому платежу з історії —
-// щоб показати, який саме період (з якої по яку дату) покрила КОЖНА оплата,
-// а не лише фінальну дату підписки. Платежі беруться в хронологічному
-// порядку. Три випадки:
-// - оплата наперед (попередній період ще не скінчився) — новий період від
-//   кінця попереднього, +7 днів;
-// - прострочена оплата — ТЕЖ від кінця попереднього періоду (а не від дати
-//   оплати!), на щонайменше 7 днів або стільки, скільки фактично
-//   прострочено — інакше прострочені дні виглядали б подарованими
-//   безкоштовно, хоча бекенд їх більше не дарує;
-// - перший платіж узагалі (попереднього періоду немає) — від дати оплати.
-function computePaymentPeriods(payments: PaymentRecord[]): Record<string, { start: Date; end: Date }> {
-  const ordered = payments
-    .filter(p => p.status !== "failed")
-    .slice()
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-  const periods: Record<string, { start: Date; end: Date }> = {};
-  let runningEnd: Date | null = null;
-  for (const p of ordered) {
-    const paidAt = new Date(p.created_at);
-    let start: Date;
-    let daysToAdd: number;
-    if (!runningEnd) {
-      start = paidAt;
-      daysToAdd = 7;
-    } else if (runningEnd.getTime() > paidAt.getTime()) {
-      start = runningEnd;
-      daysToAdd = 7;
-    } else {
-      start = runningEnd;
-      const diffMs = paidAt.getTime() - runningEnd.getTime();
-      const daysLate = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
-      daysToAdd = Math.max(7, daysLate);
-    }
-    const end: Date = new Date(start);
-    end.setDate(end.getDate() + daysToAdd);
-    periods[p.id] = { start, end };
-    runningEnd = end;
-  }
-  return periods;
 }
 
 // Розбиває суму оренди на тижні+дні+залишок за денним тарифом
@@ -535,18 +491,26 @@ export default function AdminCouriersPage() {
   // успішний платіж кур'єра: виправлення дати/суми щойно внесеної готівкової
   // оплати одразу узгоджує "Підписку" й статус Активний/Боржник, а не
   // лишається розсинхронізованим зі старою датою.
-  async function resyncSubscriptionFromPayments(courierId: string, payments: PaymentRecord[]) {
+  // Перераховує підписку курʼєра ("Оплачено до") з УСІЄЇ історії успішних
+  // платежів від дати старту підписки — та сама формула, що й у бекенді
+  // (computePaidThrough, @/lib/pricing). Статус виставляється за фактом:
+  // якщо оплачений період уже скінчився — "Боржник" (борг рахується наживо
+  // з леджера), інакше — "Активний". Здані (неактивні) курʼєри статус не
+  // змінюють. Раніше тут завжди ставився "Активний" і обнулявся борг, навіть
+  // якщо перерахована дата вже в минулому.
+  async function resyncSubscriptionFromPayments(courier: Courier, payments: PaymentRecord[], startOverride?: string | null) {
+    const courierId = courier.id;
+    const subscriptionStart = startOverride !== undefined ? startOverride : courier.subscription_start_date;
     const successPayments = payments
-      .filter(p => p.status !== "failed")
+      .filter(p => p.status === "success")
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     if (successPayments.length === 0) return;
 
-    const periods = computePaymentPeriods(successPayments);
+    const paidThrough = computePaidThrough(successPayments, getWeeklyPrice(courier), courier.rental_type, subscriptionStart);
+    if (!paidThrough) return;
     const last = successPayments[successPayments.length - 1];
-    const lastPeriod = periods[last.id];
-    if (!lastPeriod) return;
 
-    const newExpiresAt = lastPeriod.end.toISOString();
+    const newExpiresAt = paidThrough.toISOString();
     const newPaidAt = new Date(last.created_at).toISOString();
     const existingSubId = subsByCourier[courierId]?.id;
 
@@ -557,6 +521,7 @@ export default function AdminCouriersPage() {
         .eq("id", existingSubId);
       if (error) {
         console.error("resyncSubscriptionFromPayments: subscription update failed", error);
+        alert(`Не вдалося оновити підписку: ${error.message}`);
         return;
       }
     } else {
@@ -570,6 +535,7 @@ export default function AdminCouriersPage() {
       });
       if (error) {
         console.error("resyncSubscriptionFromPayments: subscription insert failed", error);
+        alert(`Не вдалося створити підписку: ${error.message}`);
         return;
       }
     }
@@ -579,16 +545,19 @@ export default function AdminCouriersPage() {
       [courierId]: { id: existingSubId || prev[courierId]?.id || "", expires_at: newExpiresAt, paid_at: newPaidAt, amount: last.amount },
     }));
 
-    const { error: courierError } = await supabase
-      .from("couriers")
-      .update({ status: "active", debt_since: null, debt_amount: null, debt_auto: false })
-      .eq("id", courierId);
+    if (courier.status === "inactive") return;
+
+    const overdue = paidThrough.getTime() < Date.now();
+    const statusPatch = overdue
+      ? { status: "debtor", debt_since: calculateDebtSince(paidThrough).toISOString(), debt_amount: null, debt_auto: true }
+      : { status: "active", debt_since: null, debt_amount: null, debt_auto: false };
+    const { error: courierError } = await supabase.from("couriers").update(statusPatch).eq("id", courierId);
     if (courierError) {
       console.error("resyncSubscriptionFromPayments: courier update failed", courierError);
       return;
     }
-    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : c));
-    setSelected(prev => prev && prev.id === courierId ? { ...prev, status: "active", debt_since: null, debt_amount: null, debt_auto: false } : prev);
+    setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, ...statusPatch } : c));
+    setSelected(prev => prev && prev.id === courierId ? { ...prev, ...statusPatch } : prev);
   }
 
   // key -> поточне відредаговане (ще не збережене) значення поля дати
@@ -623,7 +592,10 @@ export default function AdminCouriersPage() {
 
     const latest = updated.find(p => p.status !== "failed");
     if (latest && latest.id === paymentId) {
-      await resyncSubscriptionFromPayments(courierId, updated);
+      const courierForResync = selected?.id === courierId ? selected : couriers.find(c => c.id === courierId);
+      if (courierForResync) {
+        await resyncSubscriptionFromPayments(courierForResync, updated);
+      }
     }
   }
 
@@ -642,7 +614,7 @@ export default function AdminCouriersPage() {
     const sortedDesc = [...updated].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const latest = sortedDesc.find(p => p.status !== "failed");
     if (latest && latest.id === paymentId && selected) {
-      await resyncSubscriptionFromPayments(selected.id, updated);
+      await resyncSubscriptionFromPayments(selected, updated);
     }
   }
 
@@ -671,7 +643,7 @@ export default function AdminCouriersPage() {
     const sortedDesc = [...updated].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const latest = sortedDesc.find(p => p.status !== "failed");
     if (latest && latest.id === paymentId && selected) {
-      await resyncSubscriptionFromPayments(selected.id, updated);
+      await resyncSubscriptionFromPayments(selected, updated);
     }
   }
 
@@ -787,9 +759,19 @@ export default function AdminCouriersPage() {
 
   async function updateSubscriptionStart(id: string, date: string) {
     const value = date || null;
-    await supabase.from("couriers").update({ subscription_start_date: value }).eq("id", id);
+    const { error } = await supabase.from("couriers").update({ subscription_start_date: value }).eq("id", id);
+    if (error) {
+      console.error("updateSubscriptionStart failed", error);
+      alert(`Не вдалося зберегти дату старту: ${error.message}`);
+      return;
+    }
     setCouriers(prev => prev.map(c => c.id === id ? { ...c, subscription_start_date: value } : c));
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, subscription_start_date: value } : null);
+    // Нова дата старту змінює "Оплачено до" — одразу перераховуємо з історії
+    // платежів (якщо вони вже завантажені для цього курʼєра).
+    if (selected?.id === id && courierPayments.some(p => p.status === "success")) {
+      await resyncSubscriptionFromPayments({ ...selected, subscription_start_date: value }, courierPayments, value);
+    }
   }
 
   async function updateReturnSignedAt(id: string, date: string) {
@@ -2053,7 +2035,7 @@ export default function AdminCouriersPage() {
                   <p className="text-slate-300 text-sm">Платежів ще немає</p>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {(() => { const paymentPeriods = computePaymentPeriods(courierPayments); return courierPayments.map((p) => {
+                    {(() => { const paymentPeriods = computePaymentPeriods(courierPayments, getWeeklyPrice(selected), selected.rental_type, selected.subscription_start_date); return courierPayments.map((p) => {
                       const isFailed = p.status === "failed";
                       const deposit = p.deposit || 0;
                       const isBatteryOnly = selected.rental_type === "battery_only";
@@ -2294,6 +2276,18 @@ export default function AdminCouriersPage() {
                     <button onClick={() => { updateSubscriptionStart(selected.id, pendingDates[`sub-start:${selected.id}`]); clearDateDraft(`sub-start:${selected.id}`); }} className="text-xs text-blue-600 hover:underline shrink-0">OK</button>
                   )}
                 </div>
+                {courierPayments.some(p => p.status === "success") && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Перерахувати «Оплачено до» з дати старту підписки та всіх оплат в історії?")) {
+                        resyncSubscriptionFromPayments(selected, courierPayments);
+                      }
+                    }}
+                    className="mt-2 text-xs text-blue-600 hover:underline"
+                  >
+                    🔄 Перерахувати «Оплачено до» з історії оплат
+                  </button>
+                )}
               </div>
 
               {selected.contract_pdf_url && (

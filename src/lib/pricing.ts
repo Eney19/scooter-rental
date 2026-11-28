@@ -149,7 +149,103 @@ const WEEKLY_PRICE_BY_CITY: Record<string, number> = {
   // ввесь платіж зникає з розрахунку, і борг рахується так, ніби курʼєр
   // узагалі не платив (той самий кейс Древаля: один платіж 1000 грн з
   // battery_amount=1000 робив "Оплачено" = 0).
-  export function batteryAmountForLedger(rentalType: string | null | undefined, batteryWeeklyPrice: number): number {
+  // ---------------------------------------------------------------------------
+// "Оплачено до" з історії платежів — єдина формула для адмінки (відображення
+// "Оплата з ... по ...", перерахунок підписки) і бекенду (/api/admin/cash-payment).
+//
+// Відлік іде від дати старту підписки (couriers.subscription_start_date), а
+// кожен успішний платіж додає рівно стільки днів, скільки покриває його
+// орендна частина за денним тарифом (weeklyPrice/7). Дні рахуються з
+// НАКОПИЧЕНОЇ суми (а не округлюються по кожному платежу окремо), тож
+// залишки менші за день не губляться, а складаються.
+//
+// Раніше кожен платіж вважався рівно одним тижнем незалежно від суми, а
+// відлік ішов від дати першого платежу, а не від дати старту підписки —
+// тож при ручному відтворенні історії (виставили дату старту, завели кілька
+// готівкових оплат заднім числом) "Оплачено до" і "+N тижнів наперед"
+// рахувались неправильно (Галас Володимир Сергійович, 28.11.2026).
+// ---------------------------------------------------------------------------
+export type PeriodPayment = {
+  id: string;
+  amount: number;
+  deposit: number | null;
+  battery_amount: number | null;
+  created_at: string;
+  status?: string | null;
+};
+
+// Яка частина платежу йде саме на тариф (без завдатку і без акумулятора-
+// додатку). Для "лише акумулятор" увесь залишок після завдатку і є тариф.
+export function rentPortionOfPayment(p: PeriodPayment, rentalType: string | null | undefined): number {
+  const deposit = p.deposit || 0;
+  const battery = rentalType === "battery_only" ? 0 : (p.battery_amount || 0);
+  return Math.max(0, p.amount - deposit - battery);
+}
+
+export function computePaymentPeriods(
+  payments: PeriodPayment[],
+  weeklyPrice: number,
+  rentalType: string | null | undefined,
+  subscriptionStart?: string | null
+): Record<string, { start: Date; end: Date }> {
+  const ordered = payments
+    .filter(p => p.status === "success")
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const dayRate = weeklyPrice > 0 ? weeklyPrice / 7 : 0;
+  const startDate = subscriptionStart ? new Date(subscriptionStart) : null;
+  const startDay = startDate ? new Date(startDate) : null;
+  if (startDay) startDay.setHours(0, 0, 0, 0);
+
+  const periods: Record<string, { start: Date; end: Date }> = {};
+  let anchor: Date | null = null;
+  let anchoredToStart = false;
+  let cumulative = 0;
+  let prevEnd: Date | null = null;
+
+  for (const p of ordered) {
+    const paidAt = new Date(p.created_at);
+    // Перший платіж поточної підписки (від дати старту і пізніше) —
+    // відлік починається з дати старту підписки. Платежі з попередніх
+    // оренд (до дати старту) рахуються окремим ланцюжком від своєї дати.
+    if (startDate && startDay && !anchoredToStart && paidAt.getTime() >= startDay.getTime()) {
+      anchor = startDate;
+      anchoredToStart = true;
+      cumulative = 0;
+      prevEnd = startDate;
+    } else if (!anchor) {
+      anchor = paidAt;
+      cumulative = 0;
+      prevEnd = paidAt;
+    }
+    cumulative += rentPortionOfPayment(p, rentalType);
+    const days = dayRate > 0 ? Math.floor(cumulative / dayRate + 1e-9) : 0;
+    const end = new Date(anchor as Date);
+    end.setDate(end.getDate() + days);
+    periods[p.id] = { start: prevEnd as Date, end };
+    prevEnd = end;
+  }
+  return periods;
+}
+
+// Кінцева дата "Оплачено до" для поточної підписки (null — платежів нема).
+export function computePaidThrough(
+  payments: PeriodPayment[],
+  weeklyPrice: number,
+  rentalType: string | null | undefined,
+  subscriptionStart?: string | null
+): Date | null {
+  const periods = computePaymentPeriods(payments, weeklyPrice, rentalType, subscriptionStart);
+  const ordered = payments
+    .filter(p => p.status === "success")
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const last = ordered[ordered.length - 1];
+  return last ? periods[last.id]?.end ?? null : null;
+}
+
+export function batteryAmountForLedger(rentalType: string | null | undefined, batteryWeeklyPrice: number): number {
     return rentalType === "battery_only" ? 0 : batteryWeeklyPrice;
   }
   // Заборгованість ("Боржник"): якщо кур'єр не оплатив підписку і не здав скутер,

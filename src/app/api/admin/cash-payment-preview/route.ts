@@ -38,9 +38,13 @@ export async function POST(req: NextRequest) {
     // Прострочено — "скільки всього винен" із повної історії платежів;
     // не прострочено (нове взяття чи оплата наперед) — звичайний тижневий
     // тариф, як і раніше.
-    const rentAmount = late > 0
-      ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
-      : getWeeklyPrice(courier);
+    // Пеня — окремою сумою (і окремим платежем при збереженні), щоб вона не
+    // перетворювалась на "оплачені" дні оренди.
+    const ledger = late > 0
+      ? await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))
+      : null;
+    const rentAmount = ledger ? ledger.remainingDebt : getWeeklyPrice(courier);
+    const penalty = ledger ? ledger.penalty : 0;
     const firstPayment = await shouldChargeDeposit(courierId);
     const deposit = resolveDeposit(courier, firstPayment);
     const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
@@ -52,7 +56,8 @@ export async function POST(req: NextRequest) {
       batteryAmount: split.batteryAmount,
       scooterAmount: split.scooterAmount,
       deposit,
-      amount: rentAmount + deposit,
+      penalty,
+      amount: rentAmount + deposit + penalty,
       firstPayment,
     });
   } catch (error) {

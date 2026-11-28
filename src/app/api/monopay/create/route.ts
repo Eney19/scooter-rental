@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels, batteryAmountForLedger } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, getBatteryLabels, batteryAmountForLedger, PENALTY_PAYMENT_TYPE } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { shouldChargeDeposit } from "@/lib/rental-history";
 
@@ -52,18 +52,26 @@ export async function POST(req: NextRequest) {
   // Інакше, якщо прострочено — рахуємо наживо з повної історії платежів
   // (Нараховано − Оплачено + Пеня), а не лише з поточного тижня; якщо ще
   // не прострочено — звичайний тижневий тариф, як і раніше.
-  const rentAmount = (courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number")
-    ? courier.debt_amount
-    : late > 0
-      ? (await loadCourierDebtLedger(courierId, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
+  // Пеня — окремим платежем (type "penalty", окремий рядок з reference
+  // "<reference>_penalty"), щоб вона не перетворювалась на "оплачені" дні
+  // оренди. Сума інвойсу для курʼєра не змінюється (оренда + пеня + завдаток).
+  const manualDebt = courier.status === "debtor" && courier.debt_auto === false && typeof courier.debt_amount === "number";
+  const debtLedger = !manualDebt && late > 0
+    ? await loadCourierDebtLedger(courierId, baseAmount, courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))
+    : null;
+  const rentAmount = manualDebt
+    ? (courier.debt_amount as number)
+    : debtLedger
+      ? debtLedger.remainingDebt
       : baseAmount;
+  const penaltyAmount = debtLedger ? debtLedger.penalty : 0;
 
   // Завдаток стягується на кожне нове взяття скутера (коли в кур'єра зараз
   // немає відкритого періоду оренди), а не лише раз за все життя акаунта.
   const chargeDeposit = await shouldChargeDeposit(courierId);
   const deposit = resolveDeposit(courier, chargeDeposit);
 
-  const amountUAH = rentAmount + deposit;
+  const amountUAH = rentAmount + penaltyAmount + deposit;
   // Курʼєр "лише акумулятор" не орендує скутер узагалі — не підписуємо
   // йому в банківському інвойсі вигадану "оренду скутера".
   const rentLabel = courier.rental_type === "battery_only" ? "Оренда акумулятора" : "Оренда скутера";
@@ -74,13 +82,24 @@ export async function POST(req: NextRequest) {
     // Зберігаємо платіж зі статусом pending
     await supabaseAdmin.from("payments").insert({
       courier_id: courierId,
-      amount: amountUAH,
+      amount: rentAmount + deposit,
       deposit,
       battery_amount: batteryAmountForLedger(courier.rental_type, batteryWeeklyPrice),
       type: "weekly_rent",
       status: "pending",
       wayforpay_id: reference, // використовуємо це поле для reference
     });
+    if (penaltyAmount > 0) {
+      await supabaseAdmin.from("payments").insert({
+        courier_id: courierId,
+        amount: penaltyAmount,
+        deposit: 0,
+        battery_amount: 0,
+        type: PENALTY_PAYMENT_TYPE,
+        status: "pending",
+        wayforpay_id: `${reference}_penalty`,
+      });
+    }
 
     // Створюємо інвойс через Monobank API
     const response = await fetch("https://api.monobank.ua/api/merchant/invoice/create", {
@@ -96,7 +115,7 @@ export async function POST(req: NextRequest) {
           reference,
           destination: (
             deposit > 0
-              ? `${rentLabel} ${rentAmount} грн + завдаток ${deposit} грн — ${courier.full_name} (${courier.city || ""})`
+              ? `${rentLabel} ${rentAmount} грн${penaltyAmount > 0 ? ` + пеня ${penaltyAmount} грн` : ""} + завдаток ${deposit} грн — ${courier.full_name} (${courier.city || ""})`
               : `${rentLabel} — ${courier.full_name} (${courier.city || ""})`
           ).trim(),
         },

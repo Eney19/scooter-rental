@@ -113,6 +113,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
+      // Пеня з цього ж інвойсу записана окремим рядком (<reference>_penalty) —
+      // позначаємо його оплаченим разом з основним.
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "success", wayforpay_id: `${invoiceId}_penalty` })
+        .eq("wayforpay_id", `${reference}_penalty`)
+        .in("status", ["pending", "failed"]);
+
       const { data: existingSub } = await supabaseAdmin
         .from("subscriptions")
         .select("id, expires_at")
@@ -223,6 +231,11 @@ export async function POST(req: NextRequest) {
           .eq("status", "pending")
           .select("id")
           .maybeSingle();
+        await supabaseAdmin
+          .from("payments")
+          .update({ status: "failed" })
+          .eq("wayforpay_id", `${reference}_penalty`)
+          .eq("status", "pending");
 
         if (!updatedFailedPayment) {
           return NextResponse.json({ ok: true });
@@ -265,7 +278,7 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin
         .from("payments")
         .update({ status: "refunded" })
-        .eq("wayforpay_id", invoiceId);
+        .in("wayforpay_id", [invoiceId, `${invoiceId}_penalty`]);
 
       await supabaseAdmin
         .from("subscriptions")

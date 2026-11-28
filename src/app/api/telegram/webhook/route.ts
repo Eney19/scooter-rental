@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, splitRentForDisplay, batteryAmountForLedger } from "@/lib/pricing";
+import { getWeeklyPrice, daysOverdue, resolveDeposit, getBatteryWeeklyPrice, splitRentForDisplay, batteryAmountForLedger, PENALTY_PAYMENT_TYPE } from "@/lib/pricing";
 import { loadCourierDebtLedger } from "@/lib/debt";
 import { nextExpiryFrom, activateCourier } from "@/lib/subscription";
 import { openRentalPeriod, shouldChargeDeposit } from "@/lib/rental-history";
@@ -83,9 +83,13 @@ export async function POST(req: NextRequest) {
           .single();
 
         const late = overdueSub ? daysOverdue(overdueSub.expires_at) : 0;
-        const rentAmount = late > 0
-          ? (await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))).totalOwed
-          : getWeeklyPrice(courier);
+        // Пеня — окремим платежем (type "penalty"), щоб не перетворювалась
+        // на "оплачені" дні оренди.
+        const debtLedger = late > 0
+          ? await loadCourierDebtLedger(courierId, getWeeklyPrice(courier), courier.subscription_start_date, null, !!courier.no_penalty, resolveDeposit(courier, true))
+          : null;
+        const rentAmount = debtLedger ? debtLedger.remainingDebt : getWeeklyPrice(courier);
+        const penaltyAmount = debtLedger ? debtLedger.penalty : 0;
         // Завдаток за скутер — на кожне нове взяття скутера (коли немає
         // відкритого періоду оренди), залежить від міста.
         const firstPayment = await shouldChargeDeposit(courierId);
@@ -93,12 +97,14 @@ export async function POST(req: NextRequest) {
         const batteryAmount = getBatteryWeeklyPrice(courier.battery_types);
         const split = splitRentForDisplay(courier.rental_type, rentAmount, batteryAmount);
         const amount = rentAmount + deposit;
+        const totalAmount = amount + penaltyAmount;
         const now = new Date().toISOString();
 
         const paymentParts: string[] = [];
         if (split.scooterAmount > 0) paymentParts.push(`оренда скутера ${split.scooterAmount} грн`);
         if (split.batteryAmount > 0) paymentParts.push(`оренда акумулятора ${split.batteryAmount} грн`);
         if (deposit > 0) paymentParts.push(`завдаток за скутер ${deposit} грн`);
+        if (penaltyAmount > 0) paymentParts.push(`пеня ${penaltyAmount} грн`);
         const paymentBreakdown = paymentParts.length > 0 ? paymentParts.join(" + ") : null;
 
         // Записуємо готівковий платіж. Раніше цей insert ніхто не
@@ -130,6 +136,30 @@ export async function POST(req: NextRequest) {
           }
           await answerCallbackQuery(query.id, "❌ Помилка запису платежу — дивіться Telegram");
           return NextResponse.json({ ok: true });
+        }
+
+        if (penaltyAmount > 0) {
+          const { error: penaltyInsertError } = await supabaseAdmin.from("payments").insert({
+            courier_id: courierId,
+            amount: penaltyAmount,
+            deposit: 0,
+            battery_amount: 0,
+            type: PENALTY_PAYMENT_TYPE,
+            status: "success",
+            wayforpay_id: `cash_penalty_${Date.now()}`,
+          });
+          if (penaltyInsertError) {
+            console.error("telegram webhook cash_: penalty insert failed", penaltyInsertError, "courierId:", courierId);
+            for (const chatId of getAdminChatIds()) {
+              await sendMessage(
+                chatId,
+                `⚠️ <b>Пеню не записано</b>\n\n` +
+                `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
+                `Оренду записано, але пеню ${penaltyAmount} грн — ні: ${penaltyInsertError.message}.\n` +
+                `Додайте її вручну в адмінці.`
+              );
+            }
+          }
         }
 
         // Оновлюємо або створюємо підписку. Той самий принцип, що й у
@@ -182,7 +212,7 @@ export async function POST(req: NextRequest) {
               chatId,
               `⚠️ <b>Готівковий платіж записано не повністю</b>\n\n` +
               `Кур'єр: <b>${courier.full_name}</b> (${courier.phone})\n` +
-              `Платіж (${amount} грн) записано.\n` +
+              `Платіж (${totalAmount} грн) записано.\n` +
               (subscriptionError ? `Підписку не вдалось оновити: ${subscriptionError.message}.\n` : "") +
               (!activated ? `couriers.status не вдалось виставити "active": ${activateError}.\n` : "") +
               `\nПеревірте вручну в адмінці.`
@@ -224,8 +254,8 @@ export async function POST(req: NextRequest) {
           `Місто: ${courier.city || "—"}\n` +
           (paymentBreakdown
             ? `${paymentBreakdown}\n` +
-              `Сума: <b>${amount} грн</b>\n`
-            : `Сума: <b>${amount} грн</b>\n`) +
+              `Сума: <b>${totalAmount} грн</b>\n`
+            : `Сума: <b>${totalAmount} грн</b>\n`) +
           `Дата оплати: ${paidDate}\n` +
           `Підписка до: <b>${nextDate}</b>`
         );
@@ -242,8 +272,8 @@ export async function POST(req: NextRequest) {
             courierFull.telegram_chat_id,
             `✅ <b>Оплату підтверджено!</b>\n\n` +
             (paymentBreakdown
-              ? `${paymentBreakdown} — зараховано <b>${amount} грн</b>.\n`
-              : `Ваш готівковий платіж <b>${amount} грн</b> зараховано.\n`) +
+              ? `${paymentBreakdown} — зараховано <b>${totalAmount} грн</b>.\n`
+              : `Ваш готівковий платіж <b>${totalAmount} грн</b> зараховано.\n`) +
             `Підписка активна до <b>${nextDate}</b>.\n\n` +
             `Дякуємо! 🛵`
           );

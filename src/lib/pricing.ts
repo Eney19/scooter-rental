@@ -172,6 +172,7 @@ export type PeriodPayment = {
   battery_amount: number | null;
   created_at: string;
   status?: string | null;
+  type?: string | null;
 };
 
 // Яка частина платежу йде саме на тариф (без завдатку і без акумулятора-
@@ -189,7 +190,7 @@ export function computePaymentPeriods(
   subscriptionStart?: string | null
 ): Record<string, { start: Date; end: Date }> {
   const ordered = payments
-    .filter(p => p.status === "success")
+    .filter(p => p.status === "success" && !isPenaltyPayment(p))
     .slice()
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
@@ -238,7 +239,7 @@ export function computePaidThrough(
 ): Date | null {
   const periods = computePaymentPeriods(payments, weeklyPrice, rentalType, subscriptionStart);
   const ordered = payments
-    .filter(p => p.status === "success")
+    .filter(p => p.status === "success" && !isPenaltyPayment(p))
     .slice()
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const last = ordered[ordered.length - 1];
@@ -310,7 +311,17 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
     battery_amount: number | null;
     status: string | null;
     created_at: string;
+    type?: string | null;
   };
+
+  // Пеня, сплачена курʼєром, записується ОКРЕМИМ платежем (payments.type =
+  // "penalty") і НЕ йде в рахунок орендної плати: не додає оплачених днів і
+  // не зменшує "Залишок боргу" за оренду. Раніше пеня йшла в одному платежі
+  // з орендою і перетворювалась на зайві "оплачені" дні.
+  export const PENALTY_PAYMENT_TYPE = "penalty";
+  export function isPenaltyPayment(p: { type?: string | null }): boolean {
+    return p.type === PENALTY_PAYMENT_TYPE;
+  }
 
   export type RecalculatedDebt = {
     paidThroughDate: Date;
@@ -329,7 +340,7 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
   ): RecalculatedDebt {
     const dayRate = weeklyPrice / 7;
     const successPayments = payments
-      .filter(p => p.status !== "failed")
+      .filter(p => p.status !== "failed" && !isPenaltyPayment(p))
       .slice()
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
@@ -417,7 +428,7 @@ export function batteryAmountForLedger(rentalType: string | null | undefined, ba
     // НЕ йде в рахунок орендної плати — показуємо обидва числа окремо, щоб
     // було видно, що саме й чому віднято.
     const grossPaid = payments
-      .filter(p => p.status !== "failed")
+      .filter(p => p.status !== "failed" && !isPenaltyPayment(p))
       .reduce((sum, p) => sum + Math.max(0, p.amount - (p.battery_amount || 0)), 0);
 
     const depositDeducted = Math.min(depositAmount, grossPaid);

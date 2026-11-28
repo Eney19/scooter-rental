@@ -18,7 +18,7 @@ export async function loadCourierDebtLedger(
 ): Promise<DebtLedger> {
   const { data } = await supabaseAdmin
     .from("payments")
-    .select("amount, deposit, battery_amount, status, created_at")
+    .select("amount, deposit, battery_amount, status, created_at, type")
     .eq("courier_id", courierId)
     .in("status", ["success", "failed"]);
   const payments = (data || []) as RecalcPaymentInput[];

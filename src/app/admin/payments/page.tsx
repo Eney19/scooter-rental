@@ -13,6 +13,7 @@ type Payment = {
   payment_method: string | null;
   created_at: string;
   description: string | null;
+  type?: string | null;
   courier?: { full_name: string; phone: string; city: string | null } | null;
 };
 
@@ -255,7 +256,10 @@ export default function AdminPaymentsPage() {
                         <div className="text-slate-400 text-xs">{p.courier?.phone}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{p.courier?.city || "—"}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{p.amount.toLocaleString("uk-UA")} грн</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {p.amount.toLocaleString("uk-UA")} грн
+                        {p.type === "penalty" && <span className="ml-1 text-xs font-medium text-amber-600">пеня</span>}
+                      </td>
                       <td className="px-4 py-3">
                         {isStalePending(p) ? (
                           <span

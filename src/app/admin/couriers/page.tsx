@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { getAdminRole, clearAdminRole, type AdminRole } from "@/lib/admin-auth";
-import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger, computePaymentPeriods, computePaidThrough } from "@/lib/pricing";
+import { getBatteryLabels, getBatteryWeeklyPrice, getWeeklyPrice, getDepositAmount, resolveDeposit, calculateDebtSince, calculateDebtLedger, type DebtLedger, type RecalcPaymentInput, BATTERY_OPTIONS, DEBT_PENALTY_PER_DAY, batteryAmountForLedger, computePaymentPeriods, computePaidThrough, isPenaltyPayment } from "@/lib/pricing";
 
 type Courier = {
   id: string;
@@ -56,7 +56,7 @@ const REGISTRATION_STEP_LABELS: Record<number, string> = {
 
 type SubInfo = { id: string; expires_at: string; paid_at: string | null; amount: number };
 type ScooterOption = { id: string; name: string; city: string | null; courier_id: string | null };
-type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; status: string | null; created_at: string };
+type PaymentRecord = { id: string; amount: number; deposit: number | null; battery_amount: number | null; wayforpay_id: string | null; status: string | null; created_at: string; type?: string | null };
 
 function weeksWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -174,6 +174,7 @@ export default function AdminCouriersPage() {
   const [cashPaymentDate, setCashPaymentDate] = useState("");
   const [cashRentAmount, setCashRentAmount] = useState("");
   const [cashDepositAmount, setCashDepositAmount] = useState("");
+  const [cashPenaltyAmount, setCashPenaltyAmount] = useState("");
   const [cashTariff, setCashTariff] = useState("");
   const [cashPreviewLoading, setCashPreviewLoading] = useState(false);
   const [issueBatteryId, setIssueBatteryId] = useState("");
@@ -294,7 +295,7 @@ export default function AdminCouriersPage() {
 
     const { data: allPayments } = await supabase
       .from("payments")
-      .select("courier_id, amount, deposit, battery_amount, status, created_at")
+      .select("courier_id, amount, deposit, battery_amount, status, created_at, type")
       .in("status", ["success", "failed"]);
     const paymentsMap: Record<string, RecalcPaymentInput[]> = {};
     (allPayments || []).forEach((p) => {
@@ -502,7 +503,7 @@ export default function AdminCouriersPage() {
     const courierId = courier.id;
     const subscriptionStart = startOverride !== undefined ? startOverride : courier.subscription_start_date;
     const successPayments = payments
-      .filter(p => p.status === "success")
+      .filter(p => p.status === "success" && !isPenaltyPayment(p))
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     if (successPayments.length === 0) return;
 
@@ -651,7 +652,7 @@ export default function AdminCouriersPage() {
     setCourierPaymentsLoading(true);
     const { data } = await supabase
       .from("payments")
-      .select("id, amount, deposit, battery_amount, wayforpay_id, status, created_at")
+      .select("id, amount, deposit, battery_amount, wayforpay_id, status, created_at, type")
       .eq("courier_id", courierId)
       .in("status", ["success", "failed"])
       .order("created_at", { ascending: false });
@@ -978,6 +979,7 @@ export default function AdminCouriersPage() {
     setCashPaymentDate(new Date().toISOString().slice(0, 10));
     setCashRentAmount("");
     setCashDepositAmount("");
+    setCashPenaltyAmount("");
     setCashTariff(selected ? String(getWeeklyPrice(selected)) : "");
     setShowCashDatePicker(true);
     setCashPreviewLoading(true);
@@ -991,6 +993,7 @@ export default function AdminCouriersPage() {
       if (data.success) {
         setCashRentAmount(String(data.rentAmount));
         setCashDepositAmount(String(data.deposit));
+        setCashPenaltyAmount(String(data.penalty ?? 0));
       }
     } catch (e) {
       console.error("cash-payment-preview failed", e);
@@ -1010,6 +1013,7 @@ export default function AdminCouriersPage() {
           paidAt,
           rentAmount: cashRentAmount === "" ? undefined : Number(cashRentAmount),
           deposit: cashDepositAmount === "" ? undefined : Number(cashDepositAmount),
+          penalty: cashPenaltyAmount === "" ? 0 : Number(cashPenaltyAmount),
         }),
       });
       const data = await res.json();
@@ -1049,16 +1053,18 @@ export default function AdminCouriersPage() {
     const tariffNum = Number(cashTariff) || 0;
     const rentNum = Number(cashRentAmount) || 0;
     const depositNum = Number(cashDepositAmount) || 0;
+    const penaltyNum = Number(cashPenaltyAmount) || 0;
     const { weeks, days, leftover, dayRate } = breakdownRentDays(rentNum, tariffNum);
     const parts: string[] = [];
     if (weeks > 0) parts.push(`${weeks} ${weeksWord(weeks)}`);
     if (days > 0) parts.push(`${days} ${daysWord(days)}`);
     const breakdownText = parts.length > 0 ? parts.join(" ") : "менше дня";
-    const total = rentNum + depositNum;
+    const total = rentNum + depositNum + penaltyNum;
     const confirmText =
       `Тариф: ${tariffNum} грн/тиж (${Math.round(dayRate)} грн/день)\n` +
       `Оренда: ${rentNum} грн → ${breakdownText}${leftover > 0 ? ` + залишок ${leftover} грн` : ""}\n` +
       (depositNum > 0 ? `Завдаток: ${depositNum} грн\n` : "") +
+      (penaltyNum > 0 ? `Пеня: ${penaltyNum} грн (окремим платежем, не додає днів)\n` : "") +
       `Разом: ${total} грн\n\n` +
       `Тариф правильний? Зберегти готівковий платіж?`;
     if (!confirm(confirmText)) return;
@@ -2037,7 +2043,9 @@ export default function AdminCouriersPage() {
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {(() => { const paymentPeriods = computePaymentPeriods(courierPayments, getWeeklyPrice(selected), selected.rental_type, selected.subscription_start_date); return courierPayments.map((p) => {
                       const isFailed = p.status === "failed";
-                      const deposit = p.deposit || 0;
+                      // Пеня — окремий платіж: без розбивки на скутер/дні.
+                      const isPenalty = isPenaltyPayment(p);
+                      const deposit = isPenalty ? 0 : (p.deposit || 0);
                       const isBatteryOnly = selected.rental_type === "battery_only";
                       // Курʼєр "лише акумулятор" не має окремого "скутера" —
                       // уся сума (за винятком завдатку) належить акумулятору,
@@ -2053,8 +2061,8 @@ export default function AdminCouriersPage() {
                       // курʼєра (скутер — для звичайних, акумулятор — для
                       // "лише акумулятор"), щоб getWeeklyPrice(selected) і
                       // ця сума були на одній базі.
-                      const rentPortion = isBatteryOnly ? batteryAmount : scooterAmount;
-                      const hasBreakdown = deposit > 0 || batteryAmount > 0;
+                      const rentPortion = isPenalty ? 0 : (isBatteryOnly ? batteryAmount : scooterAmount);
+                      const hasBreakdown = !isPenalty && (deposit > 0 || batteryAmount > 0);
                       const period = paymentPeriods[p.id];
                       return (
                         <div key={p.id} className={`flex items-center justify-between text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 ${isFailed ? "opacity-70" : ""}`}>
@@ -2078,6 +2086,9 @@ export default function AdminCouriersPage() {
                               {p.wayforpay_id?.startsWith("cash_") ? "💵 Готівка" : p.wayforpay_id ? "💳 Онлайн" : "—"}
                               {isFailed && <span className="ml-1 text-red-500 font-medium">❌ Відхилено</span>}
                             </p>
+                            {isPenalty && (
+                              <p className="text-amber-600 text-xs font-medium mt-0.5">⚠️ Пеня — окремо від оренди, не додає оплачених днів</p>
+                            )}
                             {!isFailed && period && rentPortion > 0 && (
                               <>
                                 <p className="text-slate-500 text-xs mt-0.5">
@@ -2088,7 +2099,7 @@ export default function AdminCouriersPage() {
                                 </p>
                               </>
                             )}
-                            {!isFailed && p.wayforpay_id?.startsWith("cash_") ? (
+                            {!isFailed && !isPenalty && p.wayforpay_id?.startsWith("cash_") ? (
                               <div className="text-slate-400 text-xs mt-0.5 space-y-0.5">
                                 {scooterAmount > 0 && (
                                   <p className="flex justify-between gap-3">
@@ -2374,8 +2385,22 @@ export default function AdminCouriersPage() {
                         />
                         <span className="text-slate-400 text-xs shrink-0">грн</span>
                       </div>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-slate-500 text-xs w-20 shrink-0">Пеня</span>
+                        <input
+                          type="number"
+                          value={cashPenaltyAmount}
+                          onChange={e => setCashPenaltyAmount(e.target.value)}
+                          placeholder="0"
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-slate-400 text-xs shrink-0">грн</span>
+                      </div>
+                      {(Number(cashPenaltyAmount) || 0) > 0 && (
+                        <p className="text-[11px] text-amber-600 -mt-1">Пеня запишеться окремим платежем і не додасть оплачених днів.</p>
+                      )}
                       <p className="text-xs text-slate-600 font-medium">
-                        Разом: {(Number(cashRentAmount) || 0) + (Number(cashDepositAmount) || 0)} грн
+                        Разом: {(Number(cashRentAmount) || 0) + (Number(cashDepositAmount) || 0) + (Number(cashPenaltyAmount) || 0)} грн
                       </p>
                     </>
                   )}

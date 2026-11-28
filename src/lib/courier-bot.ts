@@ -460,7 +460,7 @@ async function showPaymentHistory(chatId: number, messageId: number | null, cour
   const p = Math.min(Math.max(0, page), pages - 1);
   const { data: payments } = await supabaseAdmin
     .from("payments")
-    .select("id, amount, deposit, battery_amount, wayforpay_id, created_at")
+    .select("id, amount, deposit, battery_amount, wayforpay_id, created_at, type")
     .eq("courier_id", courier.id)
     .eq("status", "success")
     .order("created_at", { ascending: false })
@@ -473,6 +473,10 @@ async function showPaymentHistory(chatId: number, messageId: number | null, cour
     const scooter = pay.amount - deposit - battery;
     const isCash = !!pay.wayforpay_id && pay.wayforpay_id.startsWith("cash_");
     text += `\n<b>${fmtDate(pay.created_at)}</b> · ${isCash ? "💵 Готівка" : "💳 Онлайн"} · <b>${pay.amount} грн</b>`;
+    if (pay.type === "penalty") {
+      text += `\n<i>пеня за прострочення</i>\n`;
+      continue;
+    }
     if (deposit > 0 || battery > 0) {
       text +=
         `\n<i>оренда скутера ${scooter} грн` +
